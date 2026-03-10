@@ -1,0 +1,7 @@
+streamlit
+pandas
+groq
+gTTS
+feedparser
+plotly
+requests
