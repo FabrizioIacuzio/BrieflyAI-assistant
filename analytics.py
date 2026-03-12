@@ -231,30 +231,44 @@ def create_sentiment_chart(analytics_df: pd.DataFrame, emails_df: pd.DataFrame) 
 
 
 def create_urgency_market_chart(analytics_df: pd.DataFrame, emails_df: pd.DataFrame) -> go.Figure:
-    """Scatter: urgency (x) vs market impact (y), colour-coded by sentiment."""
+    """Scatter: urgency (x) vs market impact (y), colour-coded by sentiment.
+    Labels are shown in hover only to avoid overlap when points cluster together."""
     merged = _safe_merge(analytics_df, emails_df, extra_cols=["Sender"])
-    merged["label"] = merged["Subject"].str[:32] + "…"
+
+    # Jitter identical (urgency, market_impact) pairs so dots don't stack perfectly
+    import numpy as np
+    rng = np.random.default_rng(seed=42)
+    merged = merged.copy()
+    merged["urgency_j"]       = merged["urgency"]       + rng.uniform(-0.18, 0.18, len(merged))
+    merged["market_impact_j"] = merged["market_impact"] + rng.uniform(-0.18, 0.18, len(merged))
 
     fig = go.Figure()
     for sentiment, group in merged.groupby("sentiment"):
         fig.add_trace(go.Scatter(
-            x=group["urgency"],
-            y=group["market_impact"],
-            mode="markers+text",
+            x=group["urgency_j"],
+            y=group["market_impact_j"],
+            mode="markers",
             marker=dict(
-                size=20,
+                size=22,
                 color=SENTIMENT_COLORS[sentiment],
-                opacity=0.85,
-                line=dict(width=1.5, color="white"),
+                opacity=0.88,
+                line=dict(width=2, color="white"),
             ),
-            text=group["label"],
-            textposition="top center",
-            textfont=dict(size=10),
             name=sentiment,
+            customdata=list(zip(
+                group["Subject"].str[:60],
+                group["Sender"],
+                group["urgency"],
+                group["market_impact"],
+                group["sentiment_score"].map(lambda v: f"{v:+.2f}"),
+            )),
             hovertemplate=(
-                "<b>%{text}</b><br>"
-                "Urgency: %{x}/10<br>"
-                "Market Impact: %{y}/10"
+                "<b>%{customdata[0]}</b><br>"
+                "<span style='color:#6b7280'>%{customdata[1]}</span><br>"
+                "──────────────────<br>"
+                "Urgency: <b>%{customdata[2]}/10</b><br>"
+                "Market Impact: <b>%{customdata[3]}/10</b><br>"
+                "Sentiment Score: <b>%{customdata[4]}</b>"
                 "<extra></extra>"
             ),
         ))
@@ -263,29 +277,42 @@ def create_urgency_market_chart(analytics_df: pd.DataFrame, emails_df: pd.DataFr
     fig.add_hline(y=5.5, line_dash="dash", line_color="#d1d5db", line_width=1, opacity=0.7)
     fig.add_vline(x=5.5, line_dash="dash", line_color="#d1d5db", line_width=1, opacity=0.7)
 
-    # Quadrant labels
-    for x, y, text, anchor in [
-        (1.2, 10.2, "High Impact / Low Urgency",  "left"),
-        (6.5, 10.2, "High Impact / Breaking News", "left"),
-        (1.2, 0.8,  "Low Impact / Low Urgency",    "left"),
-        (6.5, 0.8,  "Low Impact / Breaking News",  "left"),
+    # Quadrant corner labels
+    for x, y, text, xanchor in [
+        (1.0, 10.4, "High Impact · Low Urgency",  "left"),
+        (10.0, 10.4, "High Impact · Breaking News", "right"),
+        (1.0,  0.6, "Low Impact · Low Urgency",    "left"),
+        (10.0,  0.6, "Low Impact · Breaking News",  "right"),
     ]:
         fig.add_annotation(
             x=x, y=y, text=text,
             showarrow=False,
-            font=dict(size=9, color="#9ca3af"),
-            xanchor=anchor,
+            font=dict(size=9, color="#c4c9d4", family="Segoe UI"),
+            xanchor=xanchor,
         )
 
     fig.update_layout(
         title=dict(text="Urgency vs Market Impact", font=dict(size=15, family="Segoe UI")),
-        xaxis=dict(title="Urgency  (1 = Long-term · 10 = Breaking News)", range=[0.3, 11]),
-        yaxis=dict(title="Market Impact  (1 = Minimal · 10 = Major Move)", range=[0.3, 11]),
-        height=500,
+        xaxis=dict(
+            title="Urgency  (1 = Long-term · 10 = Breaking News)",
+            range=[0.2, 11], dtick=1, gridcolor="#f0f0f0",
+        ),
+        yaxis=dict(
+            title="Market Impact  (1 = Minimal · 10 = Major Move)",
+            range=[0.2, 11], dtick=1, gridcolor="#f0f0f0",
+        ),
+        height=520,
         plot_bgcolor="#fafafa",
         paper_bgcolor="white",
         font=dict(family="Segoe UI, Roboto, sans-serif", color="#374151", size=12),
-        legend=dict(orientation="h", y=-0.18, title="Sentiment:"),
+        legend=dict(
+            orientation="h", y=-0.16, title="Sentiment:",
+            bgcolor="rgba(255,255,255,0.9)", bordercolor="#E2E8F0", borderwidth=1,
+        ),
+        hoverlabel=dict(
+            bgcolor="white", bordercolor="#E2E8F0",
+            font=dict(family="Segoe UI", size=12, color="#1E293B"),
+        ),
     )
     return fig
 
