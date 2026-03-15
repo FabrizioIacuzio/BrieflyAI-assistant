@@ -1,3 +1,4 @@
+import html as _html
 import re
 import time
 from datetime import datetime
@@ -13,6 +14,7 @@ from analytics import (
     sentiment_badge_html,
 )
 from logic import process_reports_and_generate_audio
+from news_fetcher import fetch_newsapi_articles, refresh_csv_from_newsapi
 from rss_fetcher import fetch_live_emails
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -36,7 +38,144 @@ FILTER_OPTIONS = [
     "Central Banks & Rates",
     "Global Energy",
     "Last 24 Hours",
-    "Bloomberg / Reuters Only",
+    "Major Sources Only",
+]
+
+MAJOR_FINANCIAL_SOURCES = {
+    "Bloomberg", "Reuters", "CNBC", "The Wall Street Journal", "Wall Street Journal",
+    "Financial Times", "Forbes", "MarketWatch", "Yahoo Finance", "Barron's",
+    "Business Insider", "Associated Press", "BBC News", "BBC Business",
+    "CNN Business", "The Guardian", "FactSet", "Goldman Sachs", "Investopedia",
+    "Seeking Alpha", "The Motley Fool", "Morningstar", "Nasdaq", "AP News",
+}
+
+# ── Mock non-financial inbox emails (always injected so inbox looks realistic) ─
+MOCK_NOISE_EMAILS = [
+    {
+        "ID": 1001, "Sender": "Amazon",
+        "Subject": "Your order #114-8732641 has shipped",
+        "Date": "2026-03-09",
+        "Content": (
+            "Hi Fabrizio, great news — your order has shipped and is on its way!\n\n"
+            "Order: Kindle Paperwhite 16 GB (Black)\n"
+            "Carrier: UPS\n"
+            "Tracking: 1Z999AA10123456784\n"
+            "Estimated delivery: Tuesday, March 11\n\n"
+            "You can track your package in real time on the Amazon website using "
+            "the tracking number above. If you have any questions about your order, "
+            "please visit the Help section. Thank you for shopping with us!"
+        ),
+        "URL": "",
+    },
+    {
+        "ID": 1002, "Sender": "LinkedIn",
+        "Subject": "7 people viewed your profile this week",
+        "Date": "2026-03-09",
+        "Content": (
+            "Hi Fabrizio, your profile is getting noticed!\n\n"
+            "7 people viewed your profile in the last 7 days, including 3 recruiters. "
+            "Sarah Mitchell from Goldman Sachs and 2 others also endorsed your Python skill.\n\n"
+            "You also have 4 pending connection requests waiting for your response. "
+            "Don't miss the chance to grow your network — log in to see who's interested "
+            "in connecting with you and what opportunities might be waiting."
+        ),
+        "URL": "",
+    },
+    {
+        "ID": 1003, "Sender": "HR Department",
+        "Subject": "Q1 Performance Review — action required by March 15",
+        "Date": "2026-03-08",
+        "Content": (
+            "Hi Fabrizio,\n\n"
+            "This is a reminder that Q1 performance reviews are due by end of day "
+            "Friday, March 15. Please complete your self-assessment form in Workday "
+            "under the Performance module.\n\n"
+            "Your manager Marco Ricci has already submitted their evaluation. To avoid "
+            "delays, please submit yours at the earliest convenience. If you have any "
+            "issues accessing the Workday portal, contact us at hr@company.com.\n\n"
+            "Thank you,\nHR Team"
+        ),
+        "URL": "",
+    },
+    {
+        "ID": 1004, "Sender": "IT Support",
+        "Subject": "Scheduled system maintenance — Sunday 23:00 to 02:00 CET",
+        "Date": "2026-03-08",
+        "Content": (
+            "Dear team,\n\n"
+            "We will be performing scheduled maintenance on our core infrastructure "
+            "this Sunday, March 10, between 23:00 and 02:00 CET.\n\n"
+            "During this window the following services will be intermittently "
+            "unavailable: VPN, internal wikis, Jira, and the company email server. "
+            "Please ensure all your work is saved before the maintenance window begins. "
+            "Laptop OS updates will be pushed automatically overnight — your device "
+            "may restart once during this period.\n\n"
+            "We apologise for any inconvenience.\n— IT Operations"
+        ),
+        "URL": "",
+    },
+    {
+        "ID": 1005, "Sender": "Spotify",
+        "Subject": "Your Discover Weekly is ready — 30 new tracks",
+        "Date": "2026-03-07",
+        "Content": (
+            "Hi Fabrizio, your personalised Discover Weekly has been updated!\n\n"
+            "This week we've handpicked 30 tracks we think you'll love based on your "
+            "recent listening. Featured artists this week include Khruangbin, "
+            "Floating Points, and Caribou.\n\n"
+            "Your playlist refreshes every Monday morning. Open Spotify to start "
+            "listening — and if you enjoy any tracks, don't forget to save them to "
+            "your library before next Monday or they'll be replaced."
+        ),
+        "URL": "",
+    },
+    {
+        "ID": 1006, "Sender": "Google",
+        "Subject": "Storage alert: your Google account is 91% full",
+        "Date": "2026-03-07",
+        "Content": (
+            "Hi Fabrizio,\n\n"
+            "Your Google Account is nearly full. You are currently using 14.1 GB "
+            "of your 15 GB free storage limit across Gmail, Google Drive, and "
+            "Google Photos.\n\n"
+            "When you run out of storage you will no longer be able to send or "
+            "receive emails, upload files to Drive, or back up photos from your "
+            "phone. To avoid interruption, consider deleting large attachments in "
+            "Gmail or upgrading to Google One (100 GB for €1.99/month)."
+        ),
+        "URL": "",
+    },
+    {
+        "ID": 1007, "Sender": "Expedia",
+        "Subject": "Trip reminder: your flight to London departs in 5 days",
+        "Date": "2026-03-06",
+        "Content": (
+            "Hi Fabrizio, your trip is just around the corner!\n\n"
+            "Flight FR2041 · Milan MXP → London STN\n"
+            "Departure: March 15 at 07:25 — check-in opens 24 hours before\n"
+            "Bags: 1 checked bag included in your fare\n\n"
+            "Hotel: Premier Inn Canary Wharf, 2 nights (check-in March 15)\n"
+            "Booking reference: EXPXK8821\n\n"
+            "Remember to download the Ryanair app to check in online and save your "
+            "boarding pass to your phone. Have a great trip!"
+        ),
+        "URL": "",
+    },
+    {
+        "ID": 1008, "Sender": "Notion",
+        "Subject": "Weekly digest: 3 pages updated in your workspace",
+        "Date": "2026-03-06",
+        "Content": (
+            "Hi Fabrizio,\n\n"
+            "Here's what changed in your Notion workspace this week:\n\n"
+            "- Project Roadmap Q1 2026 — edited by Marco (2 days ago)\n"
+            "- Meeting Notes — 3 new entries added\n"
+            "- Reading List — 1 new book added by you\n\n"
+            "You have 2 comments awaiting your reply in the Project Roadmap page. "
+            "Open Notion to catch up on the latest updates from your team."
+        ),
+        "URL": "",
+    },
 ]
 SENDER_COLORS = {
     "Bloomberg":    "#2563EB",
@@ -117,6 +256,219 @@ st.set_page_config(
     page_icon="B",
     initial_sidebar_state="expanded",
 )
+
+# ── Login gate ─────────────────────────────────────────────────────────────────
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+if "login_user" not in st.session_state:
+    st.session_state["login_user"] = ""
+
+
+def _show_login() -> None:
+    # ── Global chrome removal + two fixed background panels ───────────────────
+    st.markdown("""
+    <style>
+    #stDecoration, [data-testid="stSidebarNav"],
+    #MainMenu, footer, [data-testid="stHeader"],
+    [data-testid="stSidebar"] { display: none !important; }
+
+    .stApp { background: transparent !important; }
+    [data-testid="stAppViewBlockContainer"] {
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+        max-width: 100% !important;
+    }
+    [data-testid="stMain"] { padding: 0 !important; }
+
+    /* Fixed split background — left dark, right blue */
+    .login-bg-left {
+        position: fixed; top: 0; left: 0;
+        width: 50%; height: 100vh;
+        background: #0C1220;
+        z-index: 0;
+    }
+    .login-bg-right {
+        position: fixed; top: 0; right: 0;
+        width: 50%; height: 100vh;
+        background: linear-gradient(145deg, #1E3A5F 0%, #2563EB 100%);
+        z-index: 0;
+    }
+
+    /* Bring all Streamlit content above the backgrounds */
+    [data-testid="stAppViewBlockContainer"],
+    [data-testid="stHorizontalBlock"],
+    [data-testid="stColumn"],
+    [data-testid="stVerticalBlock"] { position: relative; z-index: 1; }
+
+    [data-testid="stHorizontalBlock"] { gap: 0 !important; }
+
+    /* Login form card */
+    .login-card {
+        background: #162032;
+        border: 1px solid #1E293B;
+        border-radius: 16px;
+        padding: 40px 36px 36px;
+        margin: 0 auto;
+        max-width: 380px;
+    }
+
+    /* Inputs inside the card */
+    .login-card input {
+        background: #0C1220 !important;
+        border: 1px solid #1E293B !important;
+        color: white !important;
+        border-radius: 8px !important;
+    }
+    .login-card input::placeholder { color: #475569 !important; }
+    .login-card input:focus { border-color: #2563EB !important; }
+
+    /* Labels inside card */
+    .login-card label { color: #94A3B8 !important; font-size: 13px !important; }
+
+    /* Sign-in button */
+    .st-key-li_btn button {
+        background: #2563EB !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 9px !important;
+        font-size: 15px !important;
+        font-weight: 700 !important;
+        height: 50px !important;
+        box-shadow: 0 4px 16px rgba(37,99,235,0.35) !important;
+    }
+    .st-key-li_btn button:hover {
+        background: #1D4ED8 !important;
+        transform: translateY(-1px) !important;
+    }
+
+    /* Feature cards on the right */
+    .feat-card {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.14);
+        border-radius: 13px;
+        padding: 16px 20px;
+        margin-bottom: 12px;
+        max-width: 420px;
+    }
+    .feat-card-icon {
+        font-size: 24px;
+        min-width: 40px;
+        text-align: center;
+    }
+    .feat-card-title { font-size: 14px; font-weight: 700; color: white; margin-bottom: 3px; }
+    .feat-card-sub   { font-size: 12.5px; color: #93C5FD; line-height: 1.5; }
+    </style>
+
+    <div class="login-bg-left"></div>
+    <div class="login-bg-right"></div>
+    """, unsafe_allow_html=True)
+
+    col_left, col_right = st.columns(2, gap="small")
+
+    # ── LEFT: login form ──────────────────────────────────────────────────────
+    with col_left:
+        for _ in range(8):
+            st.markdown("&nbsp;", unsafe_allow_html=True)
+
+        # Card header
+        st.markdown(
+            '<div style="max-width:380px;margin:0 auto 20px;">'
+            '<p style="font-size:12px;font-weight:700;color:#60A5FA;letter-spacing:0.1em;'
+            'text-transform:uppercase;margin:0 0 10px;">BRIEFLY AI</p>'
+            '<p style="font-size:26px;font-weight:800;color:white;line-height:1.2;'
+            'letter-spacing:-0.4px;margin:0 0 6px;">Welcome back</p>'
+            '<p style="font-size:14px;color:#64748B;margin:0;">Sign in to your account</p>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        # Constrain form width
+        _, fc, _ = st.columns([0.05, 0.9, 0.05])
+        with fc:
+            username = st.text_input("Username", placeholder="e.g. fabrizio", key="li_user")
+            password = st.text_input("Password", placeholder="Your password",
+                                     type="password", key="li_pass")
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            if st.button("Sign in  →", use_container_width=True, key="li_btn"):
+                users = {}
+                try:
+                    users = dict(st.secrets.get("users", {}))
+                except Exception:
+                    pass
+                if username and users.get(username) == password:
+                    st.session_state["logged_in"] = True
+                    st.session_state["login_user"] = username
+                    st.rerun()
+                else:
+                    st.error("Incorrect username or password.")
+
+            st.markdown(
+                '<div style="margin-top:24px;padding-top:18px;border-top:1px solid #1E293B;">'
+                '<p style="font-size:11.5px;color:#475569;font-weight:600;'
+                'text-transform:uppercase;letter-spacing:0.07em;margin:0 0 8px;">Demo credentials</p>'
+                '<p style="font-size:13px;color:#64748B;margin:0;">'
+                'User: <code style="background:#1E293B;padding:2px 8px;border-radius:5px;'
+                'color:#60A5FA;font-weight:600;">demo</code>'
+                '&nbsp;&nbsp;'
+                'Pass: <code style="background:#1E293B;padding:2px 8px;border-radius:5px;'
+                'color:#60A5FA;font-weight:600;">demo123</code>'
+                '</p></div>',
+                unsafe_allow_html=True,
+            )
+
+    # ── RIGHT: branding + feature cards ──────────────────────────────────────
+    with col_right:
+        for _ in range(6):
+            st.markdown("&nbsp;", unsafe_allow_html=True)
+
+        # Logo + tagline
+        st.markdown(
+            '<p style="font-size:46px;font-weight:800;color:white;'
+            'letter-spacing:-1.5px;line-height:1;margin:0 0 14px;">'
+            'Briefly <span style="color:#60A5FA;">AI</span></p>'
+            '<p style="font-size:15px;color:#93C5FD;margin:0 0 36px;line-height:1.7;">'
+            'Turn your financial inbox into a '
+            '<strong style="color:white;">60-second audio briefing</strong>,'
+            ' powered by AI.</p>',
+            unsafe_allow_html=True,
+        )
+
+        # Feature cards — each a separate st.markdown to avoid rendering issues
+        for icon, title, sub in [
+            ("&#9993;",   "Smart Inbox",
+             "Live financial news merged with your inbox, auto-ranked by relevance"),
+            ("&#127897;", "AI Audio Briefings",
+             "LLM pipeline clusters, ranks and narrates your top stories in seconds"),
+            ("&#128202;", "Sentiment Analytics",
+             "Per-article sentiment, urgency &amp; market impact scored by AI"),
+            ("&#128193;", "Briefing Archive",
+             "Every briefing saved with full transcript and analytics"),
+        ]:
+            st.markdown(
+                '<div class="feat-card">'
+                f'<div class="feat-card-icon">{icon}</div>'
+                '<div>'
+                f'<div class="feat-card-title">{title}</div>'
+                f'<div class="feat-card-sub">{sub}</div>'
+                '</div></div>',
+                unsafe_allow_html=True,
+            )
+
+        st.markdown(
+            '<p style="font-size:11.5px;color:#334155;margin-top:20px;">'
+            'Powered by Groq LLaMA&nbsp;3.3 &nbsp;&middot;&nbsp; '
+            'gTTS &nbsp;&middot;&nbsp; NewsAPI</p>',
+            unsafe_allow_html=True,
+        )
+
+
+if not st.session_state["logged_in"]:
+    _show_login()
+    st.stop()
 
 # ── CSS ────────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -313,6 +665,25 @@ input[type="checkbox"] { accent-color: #2563EB; }
     transform: none !important;
     box-shadow: none !important;
 }
+
+/* ─── Nav card buttons — styled directly as cards ─── */
+/* Base for all three */
+.st-key-nav_inbox button,
+.st-key-nav_analytics button,
+.st-key-nav_archive button {
+    height: 86px !important;
+    border-radius: 12px !important;
+    font-size: 14.5px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.01em !important;
+    transition: transform 0.12s, box-shadow 0.12s !important;
+    transform: none !important;
+}
+.st-key-nav_inbox button:hover,
+.st-key-nav_analytics button:hover,
+.st-key-nav_archive button:hover {
+    transform: translateY(-2px) !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -327,6 +698,7 @@ for k, v in {
     "_last_suggestion": None,
     "open_archive_idx": None,
     "open_email_id": None,
+    "active_view": "inbox",
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -350,7 +722,7 @@ def filter_auto_select(row, suggestion: str, max_date: str) -> bool:
     if suggestion == "Central Banks & Rates":     return m(row["Subject"], r"Fed|Rate|Inflation|ECB|Central Bank|Monetary|Yield|Treasury|Hawkish|Dovish")
     if suggestion == "Global Energy":             return m(row["Subject"], r"Oil|OPEC|Energy|Crude|Gas|Refin|Brent|WTI|LNG")
     if suggestion == "Last 24 Hours":             return str(row["Date"]) == max_date
-    if suggestion == "Bloomberg / Reuters Only":  return row["Sender"] in ("Bloomberg", "Reuters")
+    if suggestion == "Major Sources Only":         return row["Sender"] in MAJOR_FINANCIAL_SOURCES
     return False
 
 
@@ -369,44 +741,88 @@ def topic_pill(t: str) -> str:
 
 
 def email_detail_html(row) -> str:
-    """Render a full email reading pane as HTML."""
-    email_tp  = get_email_type(row)
-    is_fin    = bool(row.get("Is_Financial", False))
-    content   = str(row.get("Content", "")).strip() or "No content available."
-    url       = str(row.get("URL", "")).strip()
+    """Render an email reading pane that looks like a real email client."""
+    is_fin      = bool(row.get("Is_Financial", False))
+    raw_content = str(row.get("Content", "")).strip() or "No content available."
+    url         = str(row.get("URL", "")).strip()
+    email_tp    = get_email_type(row)
 
-    accent = "#2563EB" if is_fin else "#94A3B8"
-    paragraphs = "".join(
-        f'<p style="margin:0 0 14px 0;">{p.strip()}</p>'
-        for p in content.split("  ") if p.strip()
-    ) or f'<p style="margin:0;">{content}</p>'
+    # Raw values for lookups
+    raw_sender = str(row["Sender"])
+    sender_color   = SENDER_COLORS.get(raw_sender, "#64748B")
+    sender_initial = raw_sender[0].upper() if raw_sender else "?"
 
-    url_html = (
-        f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
-        f'style="display:inline-block;margin-top:18px;font-size:12.5px;color:#2563EB;'
-        f'text-decoration:none;font-weight:500;border-bottom:1px solid #BFDBFE;padding-bottom:1px;">'
-        f'Read original article →</a>'
-    ) if url else ""
+    # HTML-escape every text value that will be injected into markup
+    sender  = _html.escape(raw_sender)
+    subject = _html.escape(str(row["Subject"]))
+    date    = _html.escape(str(row["Date"]))
+
+    # Split on newlines then escape each paragraph individually
+    para_chunks = [
+        _html.escape(p.strip())
+        for p in re.split(r"\n\n|\n", raw_content)
+        if p.strip()
+    ] or [_html.escape(raw_content)]
+
+    intro = ""
+    if is_fin and url:
+        intro = (
+            '<p style="margin:0 0 14px;font-size:13.5px;color:#64748B;font-style:italic;">'
+            "Here's a brief update on this story from your financial feed:"
+            "</p>"
+        )
+
+    paragraphs_html = "".join(
+        f'<p style="margin:0 0 14px 0;font-size:14px;color:#334155;line-height:1.8;">{p}</p>'
+        for p in para_chunks
+    )
+
+    link_html = ""
+    if url and url.startswith("http"):
+        safe_url = _html.escape(url, quote=True)
+        link_html = (
+            '<div style="margin-top:20px;padding-top:16px;border-top:1px solid #F1F5F9;">'
+            f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer"'
+            ' style="display:inline-flex;align-items:center;gap:6px;background:#2563EB;'
+            'color:white;padding:9px 20px;border-radius:8px;text-decoration:none;'
+            'font-size:13px;font-weight:600;letter-spacing:0.01em;">'
+            'Read full article &#x2192;</a>'
+            '<span style="margin-left:12px;font-size:12px;color:#94A3B8;">Opens in a new tab</span>'
+            '</div>'
+        )
+
+    header = (
+        f'<div style="padding:18px 24px 16px;border-bottom:1px solid #F1F5F9;'
+        f'background:linear-gradient(135deg,{sender_color}12 0%,#FAFBFC 100%);">'
+        '<div style="display:flex;align-items:center;gap:14px;">'
+        f'<div style="width:42px;height:42px;min-width:42px;border-radius:50%;'
+        f'background:{sender_color}22;display:flex;align-items:center;'
+        f'justify-content:center;font-size:18px;font-weight:700;color:{sender_color};">'
+        f'{sender_initial}</div>'
+        '<div style="flex:1;min-width:0;">'
+        f'<div style="font-size:14px;font-weight:700;color:#0F172A;">{sender}</div>'
+        '<div style="font-size:12px;color:#94A3B8;margin-top:2px;">'
+        f'To: <strong style="color:#64748B;">me</strong>'
+        f' &nbsp;&middot;&nbsp; {date}'
+        '</div></div>'
+        f'{type_pill(email_tp)}'
+        '</div>'
+        f'<div style="font-size:17px;font-weight:700;color:#0F172A;'
+        f'margin-top:14px;line-height:1.4;">{subject}</div>'
+        '</div>'
+    )
+
+    body = (
+        f'<div style="padding:22px 26px 20px;">'
+        f'{intro}{paragraphs_html}{link_html}'
+        '</div>'
+    )
 
     return (
-        f'<div style="background:white;border:1px solid #E2E8F0;border-radius:11px;'
-        f'padding:22px 26px;margin:2px 0 10px;box-shadow:0 2px 10px rgba(0,0,0,0.06);'
-        f'border-left:3px solid {accent};">'
-        f'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">'
-        f'<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;">'
-        f'{sender_pill(str(row["Sender"]))}&nbsp;{type_pill(email_tp)}'
-        f'</div>'
-        f'<span style="font-size:12px;color:#94A3B8;white-space:nowrap;padding-top:2px;">{row["Date"]}</span>'
-        f'</div>'
-        f'<div style="font-size:17px;font-weight:700;color:#0F172A;line-height:1.35;margin-bottom:16px;">'
-        f'{row["Subject"]}'
-        f'</div>'
-        f'<div style="border-top:1px solid #F1F5F9;padding-top:16px;'
-        f'font-size:14px;color:#334155;line-height:1.8;">'
-        f'{paragraphs}'
-        f'</div>'
-        f'{url_html}'
-        f'</div>'
+        '<div style="background:white;border:1px solid #E2E8F0;border-radius:12px;'
+        'margin:4px 0 16px;box-shadow:0 4px 16px rgba(0,0,0,0.07);overflow:hidden;">'
+        + header + body +
+        '</div>'
     )
 
 
@@ -422,6 +838,20 @@ def kpi_card(value, label: str, color: str = "#2563EB") -> str:
 
 
 # ── Data loading ───────────────────────────────────────────────────────────────
+def _newsapi_key() -> str:
+    try:
+        return st.secrets.get("NEWSAPI_KEY", "")
+    except Exception:
+        return ""
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_newsapi(api_key: str):
+    if not api_key:
+        return None
+    return fetch_newsapi_articles(api_key, max_articles=30)
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _load_rss():
     return fetch_live_emails(max_per_feed=4)
@@ -436,16 +866,18 @@ def _load_csv():
 
 
 def get_data():
-    rss_df = _load_rss()
-    csv_df = _load_csv()
-    if rss_df is not None and len(rss_df) > 0:
-        if csv_df is not None and len(csv_df) > 0:
-            combined = pd.concat([rss_df, csv_df], ignore_index=True)
-            combined = combined.drop_duplicates(subset=["Subject"]).reset_index(drop=True)
-            combined = combined.sort_values(["Date", "ID"], ascending=[False, True]).reset_index(drop=True)
-            return combined
-        return rss_df
-    return csv_df
+    """Priority: NewsAPI → RSS → CSV fallback. Returns (DataFrame, source_label)."""
+    key = _newsapi_key()
+    if key:
+        df = _load_newsapi(key)
+        if df is not None and len(df) > 0:
+            return df, "NewsAPI"
+
+    df = _load_rss()
+    if df is not None and len(df) > 0:
+        return df, "Live RSS"
+
+    return _load_csv(), "Sample Data"
 
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
@@ -482,19 +914,53 @@ with st.sidebar:
         st.session_state["_last_suggestion"] = None
         st.rerun()
 
+    # Save current live articles as the CSV fallback
+    nk = _newsapi_key()
+    if nk and st.button("Save to CSV fallback", use_container_width=True):
+        with st.spinner("Saving…"):
+            ok = refresh_csv_from_newsapi(nk)
+        if ok:
+            st.cache_data.clear()
+            st.success("Saved!")
+            st.rerun()
+        else:
+            st.error("NewsAPI fetch failed.")
+
+    st.divider()
+    user_label = st.session_state.get("login_user", "user").capitalize()
     st.markdown(
-        '<div style="font-size:10px;color:#334155;text-align:center;margin-top:24px;">Powered by Groq · gTTS</div>',
+        f'<div style="font-size:12px;color:#64748B;margin-bottom:8px;">'
+        f'Signed in as <strong style="color:#94A3B8;">{user_label}</strong></div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("Sign out", use_container_width=True, key="logout_btn"):
+        st.session_state["logged_in"] = False
+        st.session_state["login_user"] = ""
+        st.rerun()
+
+    st.markdown(
+        '<div style="font-size:10px;color:#334155;text-align:center;margin-top:16px;">Powered by Groq · gTTS</div>',
         unsafe_allow_html=True,
     )
 
 
 # ── Load & prepare data ────────────────────────────────────────────────────────
 with st.spinner("Loading feed…"):
-    df = get_data()
+    df, source_label = get_data()
 
 if df is None:
     st.error("No data available. Run `python setup_data.py` to generate sample data.")
     st.stop()
+
+# Always inject the mock non-financial emails so the inbox looks realistic
+mock_df = pd.DataFrame(MOCK_NOISE_EMAILS)
+if "URL" not in df.columns:
+    df["URL"] = ""
+df = pd.concat([df, mock_df], ignore_index=True)
+# Re-number IDs to be unique and sequential
+df = df.drop_duplicates(subset=["Subject"]).reset_index(drop=True)
+df["ID"] = range(1, len(df) + 1)
+df = df.sort_values("Date", ascending=False).reset_index(drop=True)
 
 df["Is_Financial"] = df.apply(is_financial, axis=1)
 max_date = str(df["Date"].max())
@@ -511,16 +977,29 @@ archive_count = len(st.session_state.archive)
 
 
 # ── Page header ────────────────────────────────────────────────────────────────
-st.markdown("""
-<div style="padding:14px 0 6px;">
-    <h1 style="margin:0;font-size:28px;font-weight:700;color:#0F172A;letter-spacing:-0.5px;">
-        Briefly <span style="color:#2563EB;">AI</span>
-    </h1>
-    <p style="margin:5px 0 0;color:#64748B;font-size:13.5px;">
-        AI-powered financial briefings — synthesised in seconds
-    </p>
-</div>
-""", unsafe_allow_html=True)
+src_colors = {"NewsAPI": "#7C3AED", "Live RSS": "#059669", "Sample Data": "#D97706"}
+src_color  = src_colors.get(source_label, "#64748B")
+
+hdr_l, hdr_r = st.columns([5, 1])
+with hdr_l:
+    st.markdown("""
+    <div style="padding:14px 0 6px;">
+        <h1 style="margin:0;font-size:28px;font-weight:700;color:#0F172A;letter-spacing:-0.5px;">
+            Briefly <span style="color:#2563EB;">AI</span>
+        </h1>
+        <p style="margin:5px 0 0;color:#64748B;font-size:13.5px;">
+            AI-powered financial briefings — synthesised in seconds
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+with hdr_r:
+    st.markdown(
+        f'<div style="text-align:right;padding-top:20px;">'
+        f'<span style="background:{src_color}14;color:{src_color};border:1px solid {src_color}40;'
+        f'padding:4px 12px;border-radius:20px;font-size:11.5px;font-weight:600;">'
+        f'● {source_label}</span></div>',
+        unsafe_allow_html=True,
+    )
 
 # KPI row — 3 cards rendered in one HTML block so heights always match
 st.markdown(
@@ -535,14 +1014,58 @@ st.markdown(
 st.markdown("<br>", unsafe_allow_html=True)
 
 
-# ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_inbox, tab_analytics, tab_archive = st.tabs(["Inbox", "Analytics", "Archive"])
+# ── Navigation cards ────────────────────────────────────────────────────────────
+# ── Navigation: inject per-render CSS so each card button reflects active state ─
+_av = st.session_state["active_view"]
+
+def _nav_css(view_key: str) -> str:
+    active = _av == view_key
+    bg      = "#2563EB" if active else "white"
+    fg      = "white"   if active else "#0F172A"
+    border  = "#2563EB" if active else "#E2E8F0"
+    shadow  = "0 4px 14px rgba(37,99,235,0.22)" if active else "0 1px 4px rgba(0,0,0,0.07)"
+    hov_bg  = "#1D4ED8" if active else "#F8FAFC"
+    hov_bdr = "#1D4ED8" if active else "#BFDBFE"
+    return (
+        f".st-key-nav_{view_key} button {{"
+        f"  background:{bg} !important; color:{fg} !important;"
+        f"  border:1.5px solid {border} !important;"
+        f"  box-shadow:{shadow} !important; }}"
+        f".st-key-nav_{view_key} button:hover {{"
+        f"  background:{hov_bg} !important; border-color:{hov_bdr} !important; }}"
+    )
+
+st.markdown(
+    "<style>"
+    + _nav_css("inbox") + _nav_css("analytics") + _nav_css("archive")
+    + "</style>",
+    unsafe_allow_html=True,
+)
+
+nav1, nav2, nav3 = st.columns(3)
+with nav1:
+    lbl = f"✉  Inbox" + (f"   ({fin_count})" if fin_count else "")
+    if st.button(lbl, key="nav_inbox", use_container_width=True):
+        st.session_state["active_view"] = "inbox"
+        st.rerun()
+with nav2:
+    if st.button("📊  Analytics", key="nav_analytics", use_container_width=True):
+        st.session_state["active_view"] = "analytics"
+        st.rerun()
+with nav3:
+    lbl = f"🗂  Archive" + (f"   ({archive_count})" if archive_count else "")
+    if st.button(lbl, key="nav_archive", use_container_width=True):
+        st.session_state["active_view"] = "archive"
+        st.rerun()
+
+st.markdown("<br>", unsafe_allow_html=True)
+active_view = st.session_state["active_view"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # INBOX
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_inbox:
+if active_view == "inbox":
 
     # Sub-header
     top_l, top_r = st.columns([4, 1])
@@ -774,6 +1297,9 @@ with tab_inbox:
                 "emails_df":        selected_df.copy(),
             })
 
+            # Rerun so the KPI counter and Archive tab reflect the new briefing immediately
+            st.rerun()
+
         except Exception as exc:
             pipeline_ph.markdown(_pipeline_html(0, set(), error=True), unsafe_allow_html=True)
             st.error(f"Error: {exc}")
@@ -838,7 +1364,7 @@ with tab_inbox:
 # ══════════════════════════════════════════════════════════════════════════════
 # ANALYTICS
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_analytics:
+if active_view == "analytics":
     adf = st.session_state.analytics_df
     edf = st.session_state.latest_emails
 
@@ -909,11 +1435,11 @@ All scores are assigned by <strong>Llama 3.3-70B</strong> (via Groq) using a str
 
         with chart_col:
             try:
-                st.plotly_chart(create_sentiment_chart(adf, edf), use_container_width=True)
+                st.plotly_chart(create_sentiment_chart(adf, edf), use_container_width=True, key="analytics_sentiment")
             except Exception as e:
                 st.error(f"Sentiment chart: {e}")
             try:
-                st.plotly_chart(create_market_impact_chart(adf, edf), use_container_width=True)
+                st.plotly_chart(create_market_impact_chart(adf, edf), use_container_width=True, key="analytics_market_impact")
             except Exception as e:
                 st.error(f"Market impact chart: {e}")
 
@@ -960,7 +1486,7 @@ All scores are assigned by <strong>Llama 3.3-70B</strong> (via Groq) using a str
         # Full-width scatter
         st.markdown("<br>", unsafe_allow_html=True)
         try:
-            st.plotly_chart(create_urgency_market_chart(adf, edf), use_container_width=True)
+            st.plotly_chart(create_urgency_market_chart(adf, edf), use_container_width=True, key="analytics_urgency")
         except Exception as e:
             st.error(f"Urgency chart: {e}")
 
@@ -968,7 +1494,7 @@ All scores are assigned by <strong>Llama 3.3-70B</strong> (via Groq) using a str
 # ══════════════════════════════════════════════════════════════════════════════
 # ARCHIVE
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_archive:
+if active_view == "archive":
     archive = st.session_state.archive
 
     if not archive:
@@ -1075,6 +1601,6 @@ with tab_archive:
                 if show_chart:
                     try:
                         fig = create_sentiment_chart(a_df, e_df)
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, use_container_width=True, key=f"archive_sentiment_{idx}")
                     except Exception as chart_err:
                         st.warning(f"Could not render chart: {chart_err}")
