@@ -240,28 +240,32 @@ def process_reports_and_generate_audio(
 
 def answer_briefing_question(briefing_script: str, emails_df, question: str) -> str:
     """
-    RAG-style chatbot: answers follow-up questions about the latest briefing.
-    Uses the script and source article summaries as context.
+    RAG-style chatbot: answers follow-up questions about articles in the inbox.
+    Uses the briefing script (if any) and ALL articles as context.
     Only draws on provided context — does not invent facts.
     """
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
     articles_ctx = "\n\n".join(
-        f"[{r['Sender']}] {r['Subject']}: {str(r.get('Content', ''))[:300]}"
+        f"[{r['Sender']}] {r['Subject']}: {str(r.get('Content', ''))[:400]}"
         for _, r in emails_df.iterrows()
     )
+
+    script_part = ""
+    if briefing_script and briefing_script.strip():
+        script_part = "LATEST BRIEFING SCRIPT (synthesis of selected articles):\n" + briefing_script[:2000] + "\n\n"
 
     messages = [
         {
             "role": "system",
             "content": (
-                "You are a concise financial analyst assistant. The user has just listened "
-                "to an AI-generated financial briefing. Answer their follow-up question "
-                "accurately and briefly (2–4 sentences), drawing ONLY on the briefing "
-                "script and source articles below. If the answer is not in the provided "
-                "context, say so clearly.\n\n"
-                "BRIEFING SCRIPT:\n" + briefing_script[:2500] +
-                "\n\nSOURCE ARTICLES:\n" + articles_ctx[:2500]
+                "You are a concise financial analyst assistant. The user can ask about "
+                "any article in their inbox. Answer their question accurately and briefly "
+                "(2–4 sentences), drawing ONLY on the briefing script and ALL articles "
+                "below. If the answer is not in the provided context, say so clearly. "
+                "Use plain text only — no markdown, bold, italics, or headers.\n\n"
+                + script_part +
+                "ALL ARTICLES IN INBOX:\n" + articles_ctx[:6000]
             ),
         },
         {"role": "user", "content": question},
@@ -278,46 +282,76 @@ def answer_briefing_question(briefing_script: str, emails_df, question: str) -> 
 
 def detect_briefing_trends(archive: list) -> str:
     """
-    Analyses the last N archived briefings and returns an LLM-generated
-    trend summary covering sentiment shifts, urgency patterns, and topic frequency.
+    Analyses archived briefings using CONTENT (scripts, topics, article subjects)
+    that the chart cannot show. Returns insights on thematic shifts, topic evolution,
+    and narrative comparison — not just restating the numeric metrics.
     """
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
     rows = []
-    for i, entry in enumerate(archive[:8]):   # cap at 8 briefings
-        ts  = entry["timestamp"].strftime("%d %b %Y %H:%M")
+    for i, entry in enumerate(archive[:6]):   # cap at 6 to fit more content per briefing
+        ts = entry["timestamp"].strftime("%d %b %Y %H:%M")
         adf = entry.get("analytics_df")
-        if adf is None or (hasattr(adf, "empty") and adf.empty):
-            continue
-        avg_sent   = float(adf["sentiment_score"].mean())
-        avg_urg    = float(adf["urgency"].mean())
-        avg_impact = float(adf["market_impact"].mean())
-        sentiments = adf["sentiment"].value_counts().to_dict()
-        clusters   = entry.get("clusters") or {}
-        topics     = [c["cluster_name"] for c in clusters.get("clusters", [])]
-        rows.append(
-            f"Briefing {i+1} ({ts}): avg_sentiment={avg_sent:+.2f}, "
-            f"avg_urgency={avg_urg:.1f}, avg_impact={avg_impact:.1f}, "
-            f"sentiment_breakdown={sentiments}, topics={topics}"
-        )
+        clusters = entry.get("clusters") or {}
+        emails_df = entry.get("emails_df")
+
+        # Content the chart cannot show
+        script = (entry.get("script") or "")[:500]
+        cluster_info = []
+        for c in sorted(clusters.get("clusters", []), key=lambda x: x.get("priority", 99)):
+            theme = c.get("key_theme", "")
+            cluster_info.append(f"{c.get('cluster_name', '')}: {theme}")
+
+        article_subjects = []
+        if emails_df is not None and hasattr(emails_df, "iterrows"):
+            for _, r in emails_df.iterrows():
+                article_subjects.append(str(r.get("Subject", ""))[:80])
+
+        topics_entities = []
+        if adf is not None and not (hasattr(adf, "empty") and adf.empty):
+            for _, r in adf.iterrows():
+                topics = r.get("topics") or []
+                entities = r.get("key_entities") or []
+                summary = str(r.get("one_line_summary", ""))[:120]
+                topics_entities.append(f"  - {topics}; {entities}; {summary}")
+
+        parts = [f"Briefing {i+1} ({ts})"]
+        if script:
+            parts.append(f"Script excerpt: {script}...")
+        if cluster_info:
+            parts.append("Clusters/themes: " + " | ".join(cluster_info))
+        if article_subjects:
+            parts.append("Article subjects: " + "; ".join(article_subjects[:6]))
+        if topics_entities:
+            parts.append("Per-article (topics, entities, summary):\n" + "\n".join(topics_entities[:5]))
+
+        rows.append("\n".join(parts))
 
     if not rows:
-        return "Not enough archived briefings with analytics data to detect trends."
+        return "Not enough archived briefings to detect trends."
 
-    context = "\n".join(rows)
-    prompt  = (
-        "You are a financial markets analyst reviewing a series of AI briefings over time.\n"
-        "Below is a summary of each briefing's analytics. Identify 3–5 concrete trends "
-        "or patterns, such as: sentiment shifts, rising urgency, dominant or recurring topics, "
-        "or any notable changes between briefings. Be specific and quantitative where possible.\n\n"
+    context = "\n\n---\n\n".join(rows)
+    prompt = (
+        "You are a financial markets analyst comparing multiple briefings over time. "
+        "The chart already shows sentiment, urgency, and impact numbers. Your job is to add "
+        "insights the chart CANNOT show.\n\n"
+        "Analyse the CONTENT below — scripts, themes, article subjects, topics, entities. "
+        "Identify 4–6 concrete insights such as:\n"
+        "• Thematic shifts: which topics emerged, faded, or recurred across briefings\n"
+        "• Narrative comparison: how did coverage of the same theme (e.g. Fed, energy) differ between briefings\n"
+        "• Contradictions or tensions: opposing views on a sector or asset across briefings\n"
+        "• Story evolution: how a topic (e.g. inflation, tech) was framed over time\n"
+        "• Dominant vs marginal themes: what drove each briefing's narrative\n\n"
+        "Do NOT simply restate the numeric metrics (sentiment/urgency/impact). Focus on "
+        "what the content says, not what the numbers say.\n\n"
         f"{context}\n\n"
-        "Write your trend analysis in 4–6 concise bullet points."
+        "Write your analysis in 4–6 concise bullet points. Be specific about topics and briefings."
     )
 
     resp = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.4,
-        max_tokens=500,
+        max_tokens=600,
     )
     return resp.choices[0].message.content.strip()

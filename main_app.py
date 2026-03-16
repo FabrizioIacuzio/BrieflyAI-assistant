@@ -1317,6 +1317,47 @@ if active_view == "inbox":
     selected_df = pd.DataFrame(selected_rows) if selected_rows else pd.DataFrame()
     has_sel     = len(selected_df) > 0
 
+    # ── Chatbot (before briefing) ────────────────────────────────────────────
+    st.markdown(
+        '<hr style="margin:24px 0 16px;border-color:#E2E8F0;">'
+        '<p style="font-size:13px;font-weight:700;color:#0F172A;margin-bottom:4px;">'
+        'Ask about any article in your inbox</p>'
+        '<p style="font-size:12px;color:#64748B;margin-bottom:12px;">'
+        'The AI answers using all articles in your inbox as context.</p>',
+        unsafe_allow_html=True,
+    )
+    for msg in st.session_state.chatbot_messages:
+        with st.chat_message(msg["role"]):
+            if msg["role"] == "assistant":
+                st.markdown(
+                    f'<div style="font-family: inherit; font-size: 14px; font-weight: 400; '
+                    f'font-style: normal; line-height: 1.6; color: #1E293B; white-space: pre-wrap;">'
+                    f'{_html.escape(msg["content"])}</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(msg["content"])
+    chat_q = st.chat_input("e.g. What did Reuters say about gold? Which sector was most bearish?")
+    if chat_q:
+        st.session_state.chatbot_messages.append({"role": "user", "content": chat_q})
+        with st.chat_message("user"):
+            st.markdown(chat_q)
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking…"):
+                try:
+                    script_ctx = st.session_state.get("latest_script") or ""
+                    answer = answer_briefing_question(script_ctx, df, chat_q)
+                except Exception as e:
+                    answer = f"Sorry, I couldn't answer that: {e}"
+                st.markdown(
+                    f'<div style="font-family: inherit; font-size: 14px; font-weight: 400; '
+                    f'font-style: normal; line-height: 1.6; color: #1E293B; white-space: pre-wrap;">'
+                    f'{_html.escape(answer)}</div>',
+                    unsafe_allow_html=True,
+                )
+        st.session_state.chatbot_messages.append({"role": "assistant", "content": answer})
+        st.rerun()
+
     st.markdown("<br>", unsafe_allow_html=True)
     btn_col, hint_col = st.columns([2, 4])
     with btn_col:
@@ -1523,39 +1564,6 @@ if active_view == "inbox":
                 f'</div>',
                 unsafe_allow_html=True,
             )
-
-        # ── Chatbot follow-up ────────────────────────────────────────────────
-        st.markdown(
-            '<hr style="margin:28px 0 20px;border-color:#E2E8F0;">'
-            '<p style="font-size:13px;font-weight:700;color:#0F172A;margin-bottom:4px;">'
-            'Ask a follow-up question about this briefing</p>'
-            '<p style="font-size:12px;color:#64748B;margin-bottom:16px;">'
-            'The AI answers using only the briefing script and source articles as context.</p>',
-            unsafe_allow_html=True,
-        )
-
-        # Display chat history
-        for msg in st.session_state.chatbot_messages:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-
-        chat_q = st.chat_input("e.g. Which sector was most bearish? What did the Fed say?")
-        if chat_q:
-            st.session_state.chatbot_messages.append({"role": "user", "content": chat_q})
-            with st.chat_message("user"):
-                st.markdown(chat_q)
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking…"):
-                    try:
-                        answer = answer_briefing_question(
-                            st.session_state.latest_script,
-                            st.session_state.latest_emails,
-                            chat_q,
-                        )
-                    except Exception as e:
-                        answer = f"Sorry, I couldn't answer that: {e}"
-                st.markdown(answer)
-            st.session_state.chatbot_messages.append({"role": "assistant", "content": answer})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
