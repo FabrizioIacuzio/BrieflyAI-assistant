@@ -201,12 +201,26 @@ def generate_briefing_script(client: Groq, clusters_data: dict, emails_df, durat
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
 
-def process_reports_and_generate_audio(selected_reports, duration_minutes: int = 3):
+# Maps user-friendly accent names to gTTS tld values
+VOICE_ACCENTS = {
+    "American (en-US)":    "com",
+    "British (en-GB)":     "co.uk",
+    "Australian (en-AU)":  "com.au",
+    "Indian (en-IN)":      "co.in",
+    "Irish (en-IE)":       "ie",
+}
+
+
+def process_reports_and_generate_audio(
+    selected_reports,
+    duration_minutes: int = 3,
+    voice_accent: str = "com",
+):
     """
     Full pipeline:
       1. Cluster & rank emails (structured JSON, validated, retried)
       2. Generate briefing script from cluster context
-      3. Synthesise MP3 audio with gTTS
+      3. Synthesise MP3 audio with gTTS (accent controlled by voice_accent tld)
     Returns (script: str, audio_path: str, clusters_data: dict)
     """
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -218,7 +232,92 @@ def process_reports_and_generate_audio(selected_reports, duration_minutes: int =
     if os.path.exists(audio_path):
         os.remove(audio_path)
 
-    tts = gTTS(text=script, lang="en")
+    tts = gTTS(text=script, lang="en", tld=voice_accent)
     tts.save(audio_path)
 
     return script, audio_path, clusters_data
+
+
+def answer_briefing_question(briefing_script: str, emails_df, question: str) -> str:
+    """
+    RAG-style chatbot: answers follow-up questions about the latest briefing.
+    Uses the script and source article summaries as context.
+    Only draws on provided context — does not invent facts.
+    """
+    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+
+    articles_ctx = "\n\n".join(
+        f"[{r['Sender']}] {r['Subject']}: {str(r.get('Content', ''))[:300]}"
+        for _, r in emails_df.iterrows()
+    )
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a concise financial analyst assistant. The user has just listened "
+                "to an AI-generated financial briefing. Answer their follow-up question "
+                "accurately and briefly (2–4 sentences), drawing ONLY on the briefing "
+                "script and source articles below. If the answer is not in the provided "
+                "context, say so clearly.\n\n"
+                "BRIEFING SCRIPT:\n" + briefing_script[:2500] +
+                "\n\nSOURCE ARTICLES:\n" + articles_ctx[:2500]
+            ),
+        },
+        {"role": "user", "content": question},
+    ]
+
+    resp = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=messages,
+        temperature=0.3,
+        max_tokens=350,
+    )
+    return resp.choices[0].message.content.strip()
+
+
+def detect_briefing_trends(archive: list) -> str:
+    """
+    Analyses the last N archived briefings and returns an LLM-generated
+    trend summary covering sentiment shifts, urgency patterns, and topic frequency.
+    """
+    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+
+    rows = []
+    for i, entry in enumerate(archive[:8]):   # cap at 8 briefings
+        ts  = entry["timestamp"].strftime("%d %b %Y %H:%M")
+        adf = entry.get("analytics_df")
+        if adf is None or (hasattr(adf, "empty") and adf.empty):
+            continue
+        avg_sent   = float(adf["sentiment_score"].mean())
+        avg_urg    = float(adf["urgency"].mean())
+        avg_impact = float(adf["market_impact"].mean())
+        sentiments = adf["sentiment"].value_counts().to_dict()
+        clusters   = entry.get("clusters") or {}
+        topics     = [c["cluster_name"] for c in clusters.get("clusters", [])]
+        rows.append(
+            f"Briefing {i+1} ({ts}): avg_sentiment={avg_sent:+.2f}, "
+            f"avg_urgency={avg_urg:.1f}, avg_impact={avg_impact:.1f}, "
+            f"sentiment_breakdown={sentiments}, topics={topics}"
+        )
+
+    if not rows:
+        return "Not enough archived briefings with analytics data to detect trends."
+
+    context = "\n".join(rows)
+    prompt  = (
+        "You are a financial markets analyst reviewing a series of AI briefings over time.\n"
+        "Below is a summary of each briefing's analytics. Identify 3–5 concrete trends "
+        "or patterns, such as: sentiment shifts, rising urgency, dominant or recurring topics, "
+        "or any notable changes between briefings. Be specific and quantitative where possible.\n\n"
+        f"{context}\n\n"
+        "Write your trend analysis in 4–6 concise bullet points."
+    )
+
+    resp = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.4,
+        max_tokens=500,
+    )
+    return resp.choices[0].message.content.strip()

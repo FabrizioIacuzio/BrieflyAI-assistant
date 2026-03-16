@@ -1,3 +1,4 @@
+import base64
 import html as _html
 import re
 import time
@@ -5,6 +6,7 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as _components
 
 from analytics import (
     analyze_emails_with_llm,
@@ -13,7 +15,12 @@ from analytics import (
     create_urgency_market_chart,
     sentiment_badge_html,
 )
-from logic import process_reports_and_generate_audio
+from logic import (
+    VOICE_ACCENTS,
+    answer_briefing_question,
+    detect_briefing_trends,
+    process_reports_and_generate_audio,
+)
 from news_fetcher import fetch_newsapi_articles, refresh_csv_from_newsapi
 from rss_fetcher import fetch_live_emails
 
@@ -341,25 +348,35 @@ def _show_login() -> None:
         transform: translateY(-1px) !important;
     }
 
-    /* Feature cards on the right */
+    /* Feature cards on the right — solid, large, full-width */
     .feat-card {
         display: flex;
         align-items: center;
-        gap: 16px;
-        background: rgba(255,255,255,0.08);
-        border: 1px solid rgba(255,255,255,0.14);
-        border-radius: 13px;
-        padding: 16px 20px;
-        margin-bottom: 12px;
-        max-width: 420px;
+        gap: 20px;
+        background: rgba(255,255,255,0.13);
+        border: 1.5px solid rgba(255,255,255,0.25);
+        border-radius: 16px;
+        padding: 22px 24px;
+        margin-bottom: 14px;
+        width: 100%;
+        box-sizing: border-box;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        backdrop-filter: blur(8px);
     }
-    .feat-card-icon {
-        font-size: 24px;
-        min-width: 40px;
-        text-align: center;
+    .feat-card-icon-wrap {
+        width: 52px; height: 52px; min-width: 52px;
+        background: rgba(255,255,255,0.18);
+        border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 26px;
     }
-    .feat-card-title { font-size: 14px; font-weight: 700; color: white; margin-bottom: 3px; }
-    .feat-card-sub   { font-size: 12.5px; color: #93C5FD; line-height: 1.5; }
+    .feat-card-title {
+        font-size: 16px; font-weight: 800;
+        color: white; margin-bottom: 5px; line-height: 1.2;
+    }
+    .feat-card-sub {
+        font-size: 13px; color: #BFDBFE; line-height: 1.55;
+    }
     </style>
 
     <div class="login-bg-left"></div>
@@ -420,48 +437,48 @@ def _show_login() -> None:
                 unsafe_allow_html=True,
             )
 
-    # ── RIGHT: branding + feature cards ──────────────────────────────────────
+    # ── RIGHT: branding + feature cards — ONE block, no Streamlit gaps ───────
     with col_right:
-        for _ in range(6):
-            st.markdown("&nbsp;", unsafe_allow_html=True)
-
-        # Logo + tagline
-        st.markdown(
-            '<p style="font-size:46px;font-weight:800;color:white;'
-            'letter-spacing:-1.5px;line-height:1;margin:0 0 14px;">'
-            'Briefly <span style="color:#60A5FA;">AI</span></p>'
-            '<p style="font-size:15px;color:#93C5FD;margin:0 0 36px;line-height:1.7;">'
-            'Turn your financial inbox into a '
-            '<strong style="color:white;">60-second audio briefing</strong>,'
-            ' powered by AI.</p>',
-            unsafe_allow_html=True,
+        features_html = "".join(
+            f'<div class="feat-card">'
+            f'<div class="feat-card-icon-wrap">{icon}</div>'
+            f'<div style="flex:1;min-width:0;">'
+            f'<div class="feat-card-title">{title}</div>'
+            f'<div class="feat-card-sub">{sub}</div>'
+            f'</div></div>'
+            for icon, title, sub in [
+                ("&#9993;",   "Smart Inbox",
+                 "Live financial news merged with your inbox, auto-ranked by relevance"),
+                ("&#127897;", "AI Audio Briefings",
+                 "Multi-step LLM pipeline clusters, ranks and narrates your top stories"),
+                ("&#128202;", "Sentiment Analytics",
+                 "Per-article sentiment, urgency &amp; market impact scored by AI"),
+                ("&#128193;", "Briefing Archive",
+                 "Every briefing saved with full transcript and analytics"),
+            ]
         )
 
-        # Feature cards — each a separate st.markdown to avoid rendering issues
-        for icon, title, sub in [
-            ("&#9993;",   "Smart Inbox",
-             "Live financial news merged with your inbox, auto-ranked by relevance"),
-            ("&#127897;", "AI Audio Briefings",
-             "LLM pipeline clusters, ranks and narrates your top stories in seconds"),
-            ("&#128202;", "Sentiment Analytics",
-             "Per-article sentiment, urgency &amp; market impact scored by AI"),
-            ("&#128193;", "Briefing Archive",
-             "Every briefing saved with full transcript and analytics"),
-        ]:
-            st.markdown(
-                '<div class="feat-card">'
-                f'<div class="feat-card-icon">{icon}</div>'
-                '<div>'
-                f'<div class="feat-card-title">{title}</div>'
-                f'<div class="feat-card-sub">{sub}</div>'
-                '</div></div>',
-                unsafe_allow_html=True,
-            )
-
         st.markdown(
-            '<p style="font-size:11.5px;color:#334155;margin-top:20px;">'
+            '<div style="display:flex;flex-direction:column;justify-content:center;'
+            'min-height:90vh;padding:48px 12px 48px 4px;">'
+
+            # Logo
+            '<p style="font-size:48px;font-weight:900;color:white;'
+            'letter-spacing:-2px;line-height:1;margin:0 0 12px;">'
+            'Briefly <span style="color:#60A5FA;">AI</span></p>'
+
+            # Tagline
+            '<p style="font-size:15px;color:#93C5FD;margin:0 0 32px;line-height:1.75;">'
+            'Turn your financial inbox into a briefing.</p>'
+
+            # All 4 cards
+            + features_html +
+
+            # Footer
+            '<p style="font-size:11.5px;color:rgba(255,255,255,0.35);margin-top:8px;">'
             'Powered by Groq LLaMA&nbsp;3.3 &nbsp;&middot;&nbsp; '
-            'gTTS &nbsp;&middot;&nbsp; NewsAPI</p>',
+            'gTTS &nbsp;&middot;&nbsp; NewsAPI</p>'
+            '</div>',
             unsafe_allow_html=True,
         )
 
@@ -695,16 +712,86 @@ for k, v in {
     "latest_emails": None,
     "latest_script": None,
     "latest_audio_path": None,
+    "latest_audio_bytes": None,
     "_last_suggestion": None,
     "open_archive_idx": None,
     "open_email_id": None,
     "active_view": "inbox",
+    "starred_emails": set(),
+    "chatbot_messages": [],
+    "data_loaded_at": None,
+    "trend_analysis": None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+# Keyword-based urgency scoring (no LLM call — instant)
+_URGENCY_TIERS = [
+    (9, r"breaking|emergency|crisis|crash|collapse|default|panic|meltdown"),
+    (7, r"surge|plunge|soar|tumble|shock|unexpected|record|unexpected|unprecedented"),
+    (5, r"rise|fall|gain|loss|report|announce|cut|hike|warning|concern"),
+    (3, r"review|analysis|trend|outlook|forecast|update|plan"),
+]
+
+def inbox_urgency(text: str) -> int:
+    for score, pattern in _URGENCY_TIERS:
+        if re.search(pattern, text, re.I):
+            return score
+    return 2
+
+def urgency_badge(score: int) -> str:
+    if score >= 8:
+        color, label = "#DC2626", "High"
+    elif score >= 5:
+        color, label = "#D97706", "Med"
+    else:
+        color, label = "#94A3B8", "Low"
+    return (
+        f'<span style="display:inline-block;background:{color}18;color:{color};'
+        f'border:1px solid {color}40;padding:1px 7px;border-radius:20px;'
+        f'font-size:10.5px;font-weight:700;white-space:nowrap;">{label}</span>'
+    )
+
+def custom_audio_player(audio_bytes: bytes) -> None:
+    """HTML5 player with playback-speed buttons, rendered inside a component iframe."""
+    b64 = base64.b64encode(audio_bytes).decode()
+    html_str = f"""
+    <style>
+      body {{ margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }}
+      audio {{ width:100%; border-radius:8px; }}
+      .speed-row {{ display:flex; align-items:center; gap:8px; margin-top:8px; }}
+      .speed-lbl {{ font-size:12px; color:#64748B; font-weight:600; }}
+      .spd {{ background:#F1F5F9; border:1px solid #E2E8F0; border-radius:6px;
+              padding:4px 10px; font-size:12px; font-weight:600; color:#1E293B;
+              cursor:pointer; transition:background 0.12s; }}
+      .spd:hover {{ background:#2563EB; color:white; border-color:#2563EB; }}
+      .spd.active {{ background:#2563EB; color:white; border-color:#2563EB; }}
+    </style>
+    <audio id="ap" controls>
+      <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+    </audio>
+    <div class="speed-row">
+      <span class="speed-lbl">Speed:</span>
+      <button class="spd" onclick="setSpeed(0.75)">0.75×</button>
+      <button class="spd active" id="s1" onclick="setSpeed(1)">1×</button>
+      <button class="spd" onclick="setSpeed(1.25)">1.25×</button>
+      <button class="spd" onclick="setSpeed(1.5)">1.5×</button>
+      <button class="spd" onclick="setSpeed(2)">2×</button>
+    </div>
+    <script>
+      function setSpeed(r) {{
+        document.getElementById('ap').playbackRate = r;
+        document.querySelectorAll('.spd').forEach(b => b.classList.remove('active'));
+        event.target.classList.add('active');
+      }}
+    </script>
+    """
+    _components.html(html_str, height=110)
+
+
 def is_financial(row) -> bool:
     if row["Sender"] in FINANCIAL_SENDERS:
         return True
@@ -897,13 +984,18 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**Briefing Length**")
-    duration_minutes = st.radio(
-        "duration",
-        [1, 3, 5],
-        format_func=lambda x: f"{x} minute{'s' if x > 1 else ''}",
-        index=1,
+    duration_minutes = st.slider(
+        "duration", min_value=1, max_value=10, value=3,
+        format="%d min", label_visibility="collapsed",
+    )
+
+    st.divider()
+    st.markdown("**Voice Accent**")
+    voice_name = st.selectbox(
+        "voice", list(VOICE_ACCENTS.keys()),
         label_visibility="collapsed",
     )
+    voice_accent = VOICE_ACCENTS[voice_name]
 
     st.divider()
     if st.button("Refresh Feed", use_container_width=True):
@@ -938,8 +1030,14 @@ with st.sidebar:
         st.session_state["login_user"] = ""
         st.rerun()
 
+    if st.session_state["data_loaded_at"]:
+        st.markdown(
+            f'<div style="font-size:10px;color:#334155;text-align:center;margin-top:8px;">'
+            f'Last refreshed {st.session_state["data_loaded_at"]}</div>',
+            unsafe_allow_html=True,
+        )
     st.markdown(
-        '<div style="font-size:10px;color:#334155;text-align:center;margin-top:16px;">Powered by Groq · gTTS</div>',
+        '<div style="font-size:10px;color:#334155;text-align:center;margin-top:8px;">Powered by Groq · gTTS</div>',
         unsafe_allow_html=True,
     )
 
@@ -947,6 +1045,8 @@ with st.sidebar:
 # ── Load & prepare data ────────────────────────────────────────────────────────
 with st.spinner("Loading feed…"):
     df, source_label = get_data()
+    if st.session_state["data_loaded_at"] is None:
+        st.session_state["data_loaded_at"] = datetime.now().strftime("%H:%M")
 
 if df is None:
     st.error("No data available. Run `python setup_data.py` to generate sample data.")
@@ -1067,97 +1167,153 @@ active_view = st.session_state["active_view"]
 # ══════════════════════════════════════════════════════════════════════════════
 if active_view == "inbox":
 
+    # ── Search bar ────────────────────────────────────────────────────────────
+    srch_l, srch_r = st.columns([5, 1])
+    with srch_l:
+        inbox_search = st.text_input(
+            "search", placeholder="Search by subject or sender…",
+            label_visibility="collapsed", key="inbox_search",
+        )
+    with srch_r:
+        starred_only = st.toggle("Starred only", key="starred_toggle")
+
+    # Apply search / starred filter
+    display_df = df.copy()
+    if inbox_search.strip():
+        q = inbox_search.strip().lower()
+        display_df = display_df[
+            display_df["Subject"].str.lower().str.contains(q, na=False) |
+            display_df["Sender"].str.lower().str.contains(q, na=False)
+        ]
+    if starred_only:
+        display_df = display_df[display_df["ID"].isin(st.session_state["starred_emails"])]
+
     # Sub-header
     top_l, top_r = st.columns([4, 1])
     top_l.markdown(
         f'<p style="font-size:13px;color:#64748B;margin:0 0 14px;">'
-        f'<strong style="color:#0F172A;">{len(df)}</strong> emails &nbsp;·&nbsp; '
-        f'<strong style="color:#2563EB;">{fin_count}</strong> financial reports</p>',
+        f'<strong style="color:#0F172A;">{len(display_df)}</strong> emails &nbsp;·&nbsp; '
+        f'<strong style="color:#2563EB;">{int(display_df["Is_Financial"].sum())}</strong> financial reports</p>',
         unsafe_allow_html=True,
     )
     sel_slot = top_r.empty()
 
-    # Column headers
-    _ind, h0, h1, h2, h3, h4, h5 = st.columns([0.008, 0.04, 0.17, 0.49, 0.10, 0.13, 0.055])
-    for col, lbl in zip([h1, h2, h3, h4], ["Source", "Subject", "Date", "Type"]):
-        col.markdown(
-            f'<div style="font-size:10.5px;font-weight:700;color:#94A3B8;'
-            f'text-transform:uppercase;letter-spacing:0.08em;padding-bottom:6px;">{lbl}</div>',
+    if display_df.empty:
+        st.markdown(
+            '<div style="text-align:center;padding:48px 20px;">'
+            '<p style="font-size:32px;color:#E2E8F0;margin-bottom:12px;">&#128269;</p>'
+            '<p style="font-size:16px;font-weight:600;color:#1E293B;margin-bottom:6px;">No emails match</p>'
+            '<p style="font-size:13px;color:#64748B;">Try a different search term or clear the filter.</p>'
+            '</div>',
             unsafe_allow_html=True,
         )
-    st.markdown('<hr style="margin:0 0 4px;border-color:#E2E8F0;">', unsafe_allow_html=True)
-
-    # Email rows
-    selected_rows = []
-    for _, row in df.iterrows():
-        rid      = row["ID"]
-        is_fin   = bool(row["Is_Financial"])
-        email_tp = get_email_type(row)
-        is_open  = st.session_state["open_email_id"] == rid
-
-        c_ind, c0, c1, c2, c3, c4, c5 = st.columns([0.008, 0.04, 0.17, 0.49, 0.10, 0.13, 0.055])
-
-        # Left accent strip — thicker + brighter when the email is open
-        with c_ind:
-            bar_color = "#2563EB" if is_fin else "transparent"
-            bar_width = "4px" if is_open else "3px"
-            st.markdown(
-                f'<div style="width:{bar_width};background:{bar_color};min-height:34px;'
-                f'border-radius:0 2px 2px 0;margin-top:3px;opacity:{"1" if is_open else "0.6"};"></div>',
+    else:
+        # Column headers — added Urgency column
+        _ind, h0, hstar, h1, h2, h3, h4, h5, h6 = st.columns(
+            [0.008, 0.04, 0.04, 0.15, 0.42, 0.09, 0.12, 0.07, 0.055]
+        )
+        for col, lbl in zip([h1, h2, h3, h4, h5], ["Source", "Subject", "Date", "Type", "Urgency"]):
+            col.markdown(
+                f'<div style="font-size:10.5px;font-weight:700;color:#94A3B8;'
+                f'text-transform:uppercase;letter-spacing:0.08em;padding-bottom:6px;">{lbl}</div>',
                 unsafe_allow_html=True,
             )
+        st.markdown('<hr style="margin:0 0 4px;border-color:#E2E8F0;">', unsafe_allow_html=True)
 
-        with c0:
-            if is_fin:
-                key = f"sel_{rid}"
-                if key not in st.session_state:
-                    st.session_state[key] = filter_auto_select(row, suggestion, max_date)
-                if st.checkbox("", key=key, label_visibility="collapsed"):
-                    selected_rows.append(row)
-            else:
-                st.markdown("&nbsp;", unsafe_allow_html=True)
+        # Email rows
+        selected_rows = []
+        for _, row in display_df.iterrows():
+            rid      = row["ID"]
+            is_fin   = bool(row["Is_Financial"])
+            email_tp = get_email_type(row)
+            is_open  = st.session_state["open_email_id"] == rid
+            is_starred = rid in st.session_state["starred_emails"]
+            urg_score  = inbox_urgency(f"{row['Subject']} {row.get('Content','')}")
 
-        with c1:
-            st.markdown(sender_pill(str(row["Sender"])), unsafe_allow_html=True)
-
-        with c2:
-            weight = "600" if is_fin else "400"
-            color  = "#0F172A" if is_fin else "#94A3B8"
-            st.markdown(
-                f'<span style="font-size:13.5px;font-weight:{weight};color:{color};">'
-                f'{row["Subject"]}</span>',
-                unsafe_allow_html=True,
+            c_ind, c0, cstar, c1, c2, c3, c4, c5, c6 = st.columns(
+                [0.008, 0.04, 0.04, 0.15, 0.42, 0.09, 0.12, 0.07, 0.055]
             )
 
-        with c3:
-            st.markdown(
-                f'<span style="font-size:12px;color:#94A3B8;">{row["Date"]}</span>',
-                unsafe_allow_html=True,
-            )
+            with c_ind:
+                bar_color = "#2563EB" if is_fin else "transparent"
+                bar_width = "4px" if is_open else "3px"
+                st.markdown(
+                    f'<div style="width:{bar_width};background:{bar_color};min-height:34px;'
+                    f'border-radius:0 2px 2px 0;margin-top:3px;opacity:{"1" if is_open else "0.6"};"></div>',
+                    unsafe_allow_html=True,
+                )
 
-        with c4:
-            st.markdown(type_pill(email_tp), unsafe_allow_html=True)
+            with c0:
+                if is_fin:
+                    key = f"sel_{rid}"
+                    if key not in st.session_state:
+                        st.session_state[key] = filter_auto_select(row, suggestion, max_date)
+                    if st.checkbox("", key=key, label_visibility="collapsed"):
+                        selected_rows.append(row)
+                else:
+                    st.markdown("&nbsp;", unsafe_allow_html=True)
 
-        with c5:
-            icon = "▼" if is_open else "›"
-            if st.button(icon, key=f"open_{rid}", type="secondary"):
-                st.session_state["open_email_id"] = None if is_open else rid
-                st.rerun()
+            with cstar:
+                star_icon = "★" if is_starred else "☆"
+                if st.button(star_icon, key=f"star_{rid}", type="secondary"):
+                    starred = st.session_state["starred_emails"]
+                    if rid in starred:
+                        starred.discard(rid)
+                    else:
+                        starred.add(rid)
+                    st.session_state["starred_emails"] = starred
+                    st.rerun()
 
-        st.markdown('<hr class="inbox-divider">', unsafe_allow_html=True)
+            with c1:
+                st.markdown(sender_pill(str(row["Sender"])), unsafe_allow_html=True)
 
-        # ── Inline reading pane ──────────────────────────────────────────────
-        if is_open:
-            st.markdown(email_detail_html(row), unsafe_allow_html=True)
+            with c2:
+                weight = "600" if is_fin else "400"
+                color  = "#0F172A" if is_fin else "#94A3B8"
+                st.markdown(
+                    f'<span style="font-size:13.5px;font-weight:{weight};color:{color};">'
+                    f'{_html.escape(str(row["Subject"]))}</span>',
+                    unsafe_allow_html=True,
+                )
 
-    # Selection counter
+            with c3:
+                st.markdown(
+                    f'<span style="font-size:12px;color:#94A3B8;">{row["Date"]}</span>',
+                    unsafe_allow_html=True,
+                )
+
+            with c4:
+                st.markdown(type_pill(email_tp), unsafe_allow_html=True)
+
+            with c5:
+                if is_fin:
+                    st.markdown(urgency_badge(urg_score), unsafe_allow_html=True)
+                else:
+                    st.markdown("&nbsp;", unsafe_allow_html=True)
+
+            with c6:
+                icon = "▼" if is_open else "›"
+                if st.button(icon, key=f"open_{rid}", type="secondary"):
+                    st.session_state["open_email_id"] = None if is_open else rid
+                    st.rerun()
+
+            st.markdown('<hr class="inbox-divider">', unsafe_allow_html=True)
+
+            if is_open:
+                st.markdown(email_detail_html(row), unsafe_allow_html=True)
+
+        # Selection counter
+        n_sel = len(selected_rows)
+        sel_slot.markdown(
+            f'<div style="text-align:right;font-size:13px;color:#2563EB;font-weight:600;">'
+            f'{n_sel} selected</div>',
+            unsafe_allow_html=True,
+        )
+
+    # selected_rows is defined inside the else block above; default to [] if search was empty
+    if "selected_rows" not in dir():
+        selected_rows = []
     n_sel = len(selected_rows)
-    sel_slot.markdown(
-        f'<div style="text-align:right;font-size:13px;color:#2563EB;font-weight:600;">'
-        f'{n_sel} selected</div>',
-        unsafe_allow_html=True,
-    )
-
     selected_df = pd.DataFrame(selected_rows) if selected_rows else pd.DataFrame()
     has_sel     = len(selected_df) > 0
 
@@ -1264,7 +1420,7 @@ if active_view == "inbox":
 
         try:
             script, audio_path, clusters_data = process_reports_and_generate_audio(
-                selected_df, duration_minutes
+                selected_df, duration_minutes, voice_accent
             )
             # Animate steps 1 and 2 completing after the main LLM call
             pipeline_ph.markdown(_pipeline_html(1, {0}), unsafe_allow_html=True)
@@ -1281,9 +1437,11 @@ if active_view == "inbox":
             st.session_state.latest_emails     = selected_df.copy()
             st.session_state.latest_script     = script
             st.session_state.latest_audio_path = audio_path
+            st.session_state.chatbot_messages  = []  # reset chat for new briefing
 
             with open(audio_path, "rb") as f:
                 audio_bytes = f.read()
+            st.session_state.latest_audio_bytes = audio_bytes
 
             st.session_state.archive.insert(0, {
                 "timestamp":        datetime.now(),
@@ -1317,7 +1475,12 @@ if active_view == "inbox":
             unsafe_allow_html=True,
         )
 
-        st.audio(st.session_state.latest_audio_path)
+        # ── Custom audio player ─────────────────────────────────────────────
+        if st.session_state.latest_audio_bytes:
+            custom_audio_player(st.session_state.latest_audio_bytes)
+        else:
+            st.audio(st.session_state.latest_audio_path)
+
         st.markdown("<br>", unsafe_allow_html=True)
 
         sc_col, meta_col = st.columns([3, 1])
@@ -1330,9 +1493,18 @@ if active_view == "inbox":
             st.markdown(
                 f'<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:9px;'
                 f'padding:18px 20px;font-size:14px;color:#1E293B;line-height:1.75;">'
-                f'{st.session_state.latest_script}</div>',
+                f'{_html.escape(st.session_state.latest_script)}</div>',
                 unsafe_allow_html=True,
             )
+            # Download button
+            st.download_button(
+                label="Download script (.txt)",
+                data=st.session_state.latest_script.encode("utf-8"),
+                file_name=f"briefing_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                mime="text/plain",
+                key="dl_script",
+            )
+
         with meta_col:
             st.markdown(
                 '<p style="font-size:11px;font-weight:700;color:#94A3B8;'
@@ -1352,13 +1524,38 @@ if active_view == "inbox":
                 unsafe_allow_html=True,
             )
 
+        # ── Chatbot follow-up ────────────────────────────────────────────────
         st.markdown(
-            '<div style="margin-top:16px;padding:11px 16px;background:#EFF6FF;'
-            'border-radius:7px;border-left:3px solid #2563EB;font-size:13px;color:#1D4ED8;">'
-            'Switch to the <strong>Analytics</strong> tab to explore sentiment scores and market impact charts.'
-            '</div>',
+            '<hr style="margin:28px 0 20px;border-color:#E2E8F0;">'
+            '<p style="font-size:13px;font-weight:700;color:#0F172A;margin-bottom:4px;">'
+            'Ask a follow-up question about this briefing</p>'
+            '<p style="font-size:12px;color:#64748B;margin-bottom:16px;">'
+            'The AI answers using only the briefing script and source articles as context.</p>',
             unsafe_allow_html=True,
         )
+
+        # Display chat history
+        for msg in st.session_state.chatbot_messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+
+        chat_q = st.chat_input("e.g. Which sector was most bearish? What did the Fed say?")
+        if chat_q:
+            st.session_state.chatbot_messages.append({"role": "user", "content": chat_q})
+            with st.chat_message("user"):
+                st.markdown(chat_q)
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking…"):
+                    try:
+                        answer = answer_briefing_question(
+                            st.session_state.latest_script,
+                            st.session_state.latest_emails,
+                            chat_q,
+                        )
+                    except Exception as e:
+                        answer = f"Sorry, I couldn't answer that: {e}"
+                st.markdown(answer)
+            st.session_state.chatbot_messages.append({"role": "assistant", "content": answer})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1604,3 +1801,82 @@ if active_view == "archive":
                         st.plotly_chart(fig, use_container_width=True, key=f"archive_sentiment_{idx}")
                     except Exception as chart_err:
                         st.warning(f"Could not render chart: {chart_err}")
+
+        # ── Trend chart + LLM trend detection ────────────────────────────────
+        if len(archive) >= 2:
+            st.markdown(
+                '<hr style="margin:32px 0 24px;border-color:#E2E8F0;">'
+                '<p style="font-size:14px;font-weight:700;color:#0F172A;margin-bottom:4px;">'
+                'Briefing Trends</p>'
+                '<p style="font-size:12px;color:#64748B;margin-bottom:18px;">'
+                'Sentiment, urgency and market impact across your last briefings.</p>',
+                unsafe_allow_html=True,
+            )
+
+            # Build trend data from archive analytics
+            trend_rows = []
+            for i, ent in enumerate(reversed(archive)):
+                adf = ent.get("analytics_df")
+                if adf is not None and isinstance(adf, pd.DataFrame) and not adf.empty:
+                    trend_rows.append({
+                        "Briefing": ent["timestamp"].strftime("%d %b %H:%M"),
+                        "Avg Sentiment": round(float(adf["sentiment_score"].mean()), 2),
+                        "Avg Urgency":   round(float(adf["urgency"].mean()), 1),
+                        "Avg Impact":    round(float(adf["market_impact"].mean()), 1),
+                    })
+
+            if trend_rows:
+                import plotly.graph_objects as go
+                trend_df = pd.DataFrame(trend_rows)
+                fig_trend = go.Figure()
+                fig_trend.add_trace(go.Scatter(
+                    x=trend_df["Briefing"], y=trend_df["Avg Sentiment"],
+                    name="Sentiment Score", mode="lines+markers",
+                    line=dict(color="#2563EB", width=2),
+                    marker=dict(size=7),
+                ))
+                fig_trend.add_trace(go.Scatter(
+                    x=trend_df["Briefing"], y=trend_df["Avg Urgency"],
+                    name="Avg Urgency", mode="lines+markers",
+                    line=dict(color="#7C3AED", width=2, dash="dot"),
+                    marker=dict(size=7),
+                    yaxis="y2",
+                ))
+                fig_trend.add_trace(go.Scatter(
+                    x=trend_df["Briefing"], y=trend_df["Avg Impact"],
+                    name="Avg Impact", mode="lines+markers",
+                    line=dict(color="#059669", width=2, dash="dash"),
+                    marker=dict(size=7),
+                    yaxis="y2",
+                ))
+                fig_trend.update_layout(
+                    height=300, margin=dict(l=0, r=0, t=10, b=0),
+                    paper_bgcolor="white", plot_bgcolor="#F8FAFC",
+                    legend=dict(orientation="h", y=-0.25),
+                    xaxis=dict(showgrid=False),
+                    yaxis=dict(title="Sentiment (−1 to +1)", showgrid=True,
+                               gridcolor="#F1F5F9", range=[-1.1, 1.1]),
+                    yaxis2=dict(title="Score (1–10)", overlaying="y", side="right",
+                                showgrid=False, range=[0, 11]),
+                )
+                st.plotly_chart(fig_trend, use_container_width=True, key="archive_trend_chart")
+
+            # LLM trend analysis button
+            tc1, tc2 = st.columns([2, 5])
+            with tc1:
+                if st.button("Detect trends with AI", key="detect_trends_btn", use_container_width=True):
+                    with st.spinner("Analysing trends across briefings…"):
+                        try:
+                            result = detect_briefing_trends(archive)
+                            st.session_state["trend_analysis"] = result
+                        except Exception as e:
+                            st.session_state["trend_analysis"] = f"Error: {e}"
+            with tc2:
+                if st.session_state.get("trend_analysis"):
+                    st.markdown(
+                        f'<div style="background:#F0F7FF;border:1px solid #BFDBFE;border-radius:9px;'
+                        f'padding:14px 18px;font-size:13.5px;color:#1E3A5F;line-height:1.7;">'
+                        f'{_html.escape(st.session_state["trend_analysis"]).replace(chr(10), "<br>")}'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
