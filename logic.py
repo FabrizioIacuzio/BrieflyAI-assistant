@@ -201,9 +201,10 @@ def generate_briefing_script(client: Groq, clusters_data: dict, emails_df, durat
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
 
-# Maps user-friendly accent names to gTTS tld values
+# Maps user-friendly accent names to gTTS tld values.
+# Use "us" for American (not "com" — com redirects by geo and often sounds British).
 VOICE_ACCENTS = {
-    "American (en-US)":    "com",
+    "American (en-US)":    "us",
     "British (en-GB)":     "co.uk",
     "Australian (en-AU)":  "com.au",
     "Indian (en-IN)":      "co.in",
@@ -214,7 +215,7 @@ VOICE_ACCENTS = {
 def process_reports_and_generate_audio(
     selected_reports,
     duration_minutes: int = 3,
-    voice_accent: str = "com",
+    voice_accent: str = "us",
 ):
     """
     Full pipeline:
