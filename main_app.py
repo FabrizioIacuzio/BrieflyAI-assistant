@@ -416,6 +416,9 @@ def _show_login() -> None:
                     users = dict(st.secrets.get("users", {}))
                 except Exception:
                     pass
+                # Fallback: if no secrets configured (e.g. on Streamlit Cloud), allow demo
+                if not users:
+                    users = {"demo": "demo123"}
                 if username and users.get(username) == password:
                     st.session_state["logged_in"] = True
                     st.session_state["login_user"] = username
