@@ -19,6 +19,7 @@ from logic import (
     VOICE_ACCENTS,
     answer_briefing_question,
     detect_briefing_trends,
+    multi_agent_debate,
     process_reports_and_generate_audio,
 )
 from news_fetcher import fetch_newsapi_articles, refresh_csv_from_newsapi
@@ -416,9 +417,6 @@ def _show_login() -> None:
                     users = dict(st.secrets.get("users", {}))
                 except Exception:
                     pass
-                # Fallback: if no secrets configured (e.g. on Streamlit Cloud), allow demo
-                if not users:
-                    users = {"demo": "demo123"}
                 if username and users.get(username) == password:
                     st.session_state["logged_in"] = True
                     st.session_state["login_user"] = username
@@ -429,14 +427,9 @@ def _show_login() -> None:
             st.markdown(
                 '<div style="margin-top:24px;padding-top:18px;border-top:1px solid #1E293B;">'
                 '<p style="font-size:11.5px;color:#475569;font-weight:600;'
-                'text-transform:uppercase;letter-spacing:0.07em;margin:0 0 8px;">Demo credentials</p>'
+                'text-transform:uppercase;letter-spacing:0.07em;margin:0 0 8px;">Credentials</p>'
                 '<p style="font-size:13px;color:#64748B;margin:0;">'
-                'User: <code style="background:#1E293B;padding:2px 8px;border-radius:5px;'
-                'color:#60A5FA;font-weight:600;">demo</code>'
-                '&nbsp;&nbsp;'
-                'Pass: <code style="background:#1E293B;padding:2px 8px;border-radius:5px;'
-                'color:#60A5FA;font-weight:600;">demo123</code>'
-                '</p></div>',
+                'Contact the administrator for access.</p></div>',
                 unsafe_allow_html=True,
             )
 
@@ -724,6 +717,9 @@ for k, v in {
     "chatbot_messages": [],
     "data_loaded_at": None,
     "trend_analysis": None,
+    "debate_result": None,
+    "briefing_feedback": None,  # "up" | "down" | None
+    "briefing_feedback_note": "",
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -1482,6 +1478,9 @@ if active_view == "inbox":
             st.session_state.latest_script     = script
             st.session_state.latest_audio_path = audio_path
             st.session_state.chatbot_messages  = []  # reset chat for new briefing
+            st.session_state.debate_result     = None
+            st.session_state.briefing_feedback = None
+            st.session_state.briefing_feedback_note = ""
 
             with open(audio_path, "rb") as f:
                 audio_bytes = f.read()
@@ -1497,6 +1496,8 @@ if active_view == "inbox":
                 "clusters":         clusters_data,
                 "analytics_df":     analytics_df,
                 "emails_df":        selected_df.copy(),
+                "feedback":         None,
+                "feedback_note":    "",
             })
 
             # Rerun so the KPI counter and Archive tab reflect the new briefing immediately
@@ -1567,6 +1568,131 @@ if active_view == "inbox":
                 f'</div>',
                 unsafe_allow_html=True,
             )
+
+        # ── Risk Alert Banner ───────────────────────────────────────────────
+        adf_check = st.session_state.analytics_df
+        if adf_check is not None and not (isinstance(adf_check, pd.DataFrame) and adf_check.empty):
+            high_risk = adf_check[
+                (adf_check.get("urgency", pd.Series(dtype=int)) >= 8) |
+                (adf_check.get("market_impact", pd.Series(dtype=int)) >= 8)
+            ] if "urgency" in adf_check.columns and "market_impact" in adf_check.columns else pd.DataFrame()
+            if not high_risk.empty:
+                alert_items = []
+                for _, r in high_risk.iterrows():
+                    u = r.get("urgency", "?")
+                    mi = r.get("market_impact", "?")
+                    s = str(r.get("one_line_summary", "High-impact story"))[:90]
+                    alert_items.append(
+                        f'<li style="margin-bottom:4px;">'
+                        f'<span style="font-weight:600;">{s}</span>'
+                        f'&nbsp;<span style="color:#DC2626;font-size:11px;">'
+                        f'[Urgency {u}/10 · Impact {mi}/10]</span></li>'
+                    )
+                items_html = "".join(alert_items)
+                st.markdown(
+                    f'<div style="margin-top:20px;background:#FEF2F2;border:1px solid #FCA5A5;'
+                    f'border-left:4px solid #DC2626;border-radius:8px;padding:14px 18px;">'
+                    f'<p style="font-size:12px;font-weight:700;color:#991B1B;'
+                    f'text-transform:uppercase;letter-spacing:0.08em;margin:0 0 8px;">'
+                    f'&#9888; High-Impact Alert</p>'
+                    f'<p style="font-size:12px;color:#7F1D1D;margin:0 0 8px;">'
+                    f'{len(high_risk)} article(s) flagged with urgency or market impact &ge; 8/10:</p>'
+                    f'<ul style="margin:0;padding-left:18px;font-size:13px;color:#991B1B;">'
+                    f'{items_html}</ul></div>',
+                    unsafe_allow_html=True,
+                )
+
+        # ── Feedback Loop ───────────────────────────────────────────────────
+        st.markdown(
+            '<div style="margin-top:24px;padding-top:20px;border-top:1px solid #F1F5F9;">'
+            '<p style="font-size:12px;font-weight:700;color:#94A3B8;'
+            'text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">'
+            'Was this briefing useful?</p></div>',
+            unsafe_allow_html=True,
+        )
+        fb_col1, fb_col2, fb_col3 = st.columns([1, 1, 4])
+        with fb_col1:
+            if st.button("👍 Yes", key="fb_up", use_container_width=True):
+                st.session_state.briefing_feedback = "up"
+                if st.session_state.archive:
+                    st.session_state.archive[0]["feedback"] = "up"
+        with fb_col2:
+            if st.button("👎 No", key="fb_down", use_container_width=True):
+                st.session_state.briefing_feedback = "down"
+                if st.session_state.archive:
+                    st.session_state.archive[0]["feedback"] = "down"
+
+        current_fb = st.session_state.get("briefing_feedback")
+        if current_fb == "up":
+            st.markdown(
+                '<p style="font-size:13px;color:#16A34A;margin:8px 0 0;">Thanks! Glad it helped.</p>',
+                unsafe_allow_html=True,
+            )
+        elif current_fb == "down":
+            note = st.text_input(
+                "What could be improved?",
+                key="fb_note_input",
+                placeholder="e.g. topics weren't relevant, too long, missing context…",
+            )
+            if note:
+                st.session_state.briefing_feedback_note = note
+                if st.session_state.archive:
+                    st.session_state.archive[0]["feedback_note"] = note
+
+        # ── Multi-Agent Debate ──────────────────────────────────────────────
+        st.markdown(
+            '<div style="margin-top:24px;padding-top:20px;border-top:1px solid #F1F5F9;">'
+            '<p style="font-size:12px;font-weight:700;color:#94A3B8;'
+            'text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">'
+            'Multi-Agent Analysis</p>'
+            '<p style="font-size:12px;color:#94A3B8;margin-bottom:12px;">'
+            'Chief Risk Officer · Trader · Analyst debate the briefing</p></div>',
+            unsafe_allow_html=True,
+        )
+        if st.session_state.get("debate_result") is None:
+            if st.button("Run debate", key="run_debate"):
+                with st.spinner("Convening the war room…"):
+                    debate = multi_agent_debate(
+                        st.session_state.latest_script or "",
+                        st.session_state.latest_emails,
+                        st.session_state.analytics_df,
+                    )
+                    st.session_state.debate_result = debate
+                    st.rerun()
+
+        debate = st.session_state.get("debate_result")
+        if debate:
+            _DEBATE_PERSONAS = [
+                ("cro",     "Chief Risk Officer", "#DC2626", "#FEF2F2", "#FCA5A5", "&#9888;"),
+                ("trader",  "Trader",             "#16A34A", "#F0FDF4", "#86EFAC", "&#128200;"),
+                ("analyst", "Research Analyst",   "#2563EB", "#EFF6FF", "#BFDBFE", "&#128202;"),
+            ]
+            for key, label, color, bg, border, icon in _DEBATE_PERSONAS:
+                text = debate.get(key, "")
+                st.markdown(
+                    f'<div style="background:{bg};border:1px solid {border};border-left:4px solid {color};'
+                    f'border-radius:8px;padding:14px 18px;margin-bottom:10px;">'
+                    f'<p style="font-size:11px;font-weight:700;color:{color};'
+                    f'text-transform:uppercase;letter-spacing:0.08em;margin:0 0 6px;">'
+                    f'{icon} {label}</p>'
+                    f'<p style="font-size:13.5px;color:#1E293B;line-height:1.65;margin:0;">{_html.escape(text)}</p>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            consensus = debate.get("consensus", "")
+            if consensus:
+                st.markdown(
+                    f'<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;'
+                    f'padding:12px 18px;margin-top:4px;">'
+                    f'<p style="font-size:11px;font-weight:700;color:#64748B;'
+                    f'text-transform:uppercase;letter-spacing:0.08em;margin:0 0 4px;">Consensus</p>'
+                    f'<p style="font-size:13px;color:#475569;line-height:1.6;margin:0;">'
+                    f'<em>{_html.escape(consensus)}</em></p></div>',
+                    unsafe_allow_html=True,
+                )
+            if st.button("Regenerate debate", key="regen_debate"):
+                st.session_state.debate_result = None
+                st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1729,10 +1855,17 @@ if active_view == "archive":
                 ]
                 tags_html = "".join(f'<span class="arc-tag">{t}</span>' for t in topic_names)
                 featured  = "arc-card-featured" if i == 0 else ""
+                fb = entry.get("feedback")
+                fb_html = (
+                    '&nbsp;<span style="font-size:13px;" title="You found this useful">&#128077;</span>'
+                    if fb == "up" else
+                    '&nbsp;<span style="font-size:13px;" title="Marked as not useful">&#128078;</span>'
+                    if fb == "down" else ""
+                )
 
                 st.markdown(
                     f'<div class="arc-card {featured}">'
-                    f'  <div class="arc-ts">{ts} &nbsp; <span style="font-weight:400;color:#94A3B8;">{t_time}</span></div>'
+                    f'  <div class="arc-ts">{ts} &nbsp; <span style="font-weight:400;color:#94A3B8;">{t_time}</span>{fb_html}</div>'
                     f'  <div class="arc-sub">{sources} sources &nbsp;·&nbsp; {duration} min</div>'
                     f'  <div class="arc-tags">{tags_html}</div>'
                     f'</div>',

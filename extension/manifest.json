@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "Briefly AI",
+  "version": "1.0",
+  "description": "Turn your Gmail financial emails into an AI audio briefing.",
+
+  "icons": {
+    "16":  "icons/icon16.png",
+    "48":  "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Briefly AI"
+  },
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "permissions": [
+    "identity",
+    "storage"
+  ],
+
+  "host_permissions": [
+    "https://www.googleapis.com/*",
+    "https://gmail.googleapis.com/*",
+    "http://localhost:8000/*"
+  ],
+
+  "oauth2": {
+    "client_id": "324258815549-vnk9i8m8rpl9tp6ohq83cbelt565ags5.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "openid",
+      "email",
+      "profile"
+    ]
+  },
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none';"
+  },
+
+  "_comment_urls": "Change backend_url and frontend_url to your production domain before publishing to Chrome Web Store. Remove http://localhost:8000/* from host_permissions and add your production domain.",
+  "backend_url":  "http://localhost:8000/api",
+  "frontend_url": "http://localhost:5173"
+}

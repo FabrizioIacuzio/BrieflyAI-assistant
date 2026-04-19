@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Briefly AI</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ══ LOGIN SCREEN ══════════════════════════════════════════════════════════ -->
+<div id="loginScreen" class="login-screen" style="display:none">
+  <div>
+    <div class="login-title">Briefly <span>AI</span></div>
+  </div>
+  <p class="login-sub">
+    Sign in with Google to turn your financial<br>Gmail into an AI audio briefing.
+  </p>
+  <button class="btn-google" id="btnSignIn">
+    <!-- Google G logo -->
+    <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+      <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+      <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/>
+      <path d="M3.964 10.707A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.707V4.961H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#FBBC05"/>
+      <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.961L3.964 7.293C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+    </svg>
+    Sign in with Google
+  </button>
+  <div id="loginError" class="error-msg" style="display:none"></div>
+</div>
+
+<!-- ══ MAIN APP ═══════════════════════════════════════════════════════════════ -->
+<div id="mainApp" class="app" style="display:none">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">Briefly <span>AI</span></div>
+    <div class="user-row">
+      <div>
+        <div class="user-info">
+          <div class="user-name" id="userName"></div>
+          <div class="user-email" id="userEmail"></div>
+        </div>
+        <button class="btn-sign-out" id="btnSignOut">Sign out →</button>
+      </div>
+      <div class="avatar" id="avatarWrap">
+        <span id="avatarInitial"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls" id="controlsSection">
+    <div class="controls-row">
+      <select class="select" id="filterSelect">
+        <option value="">All emails</option>
+        <option value="Bloomberg / Reuters">Bloomberg / Reuters</option>
+        <option value="Market Data">Market Data</option>
+        <option value="Central Banks">Central Banks</option>
+        <option value="Crypto">Crypto</option>
+        <option value="Macro">Macro</option>
+      </select>
+      <button class="btn btn-secondary" id="btnFetch">Fetch</button>
+    </div>
+    <div id="fetchError" class="error-msg" style="display:none;margin:6px 0 0"></div>
+  </div>
+
+  <!-- Email list / states -->
+  <div class="email-list" id="emailList">
+    <div class="state-message" id="emptyState">
+      <div class="icon">✉</div>
+      <p>Choose a filter and click <strong>Fetch</strong><br>to load your Gmail emails.</p>
+    </div>
+    <div class="state-message" id="loadingState" style="display:none">
+      <div class="icon">⏳</div>
+      <p>Fetching emails from Gmail…</p>
+    </div>
+    <div id="emailItems" style="display:none">
+      <div class="email-count" id="emailCount"></div>
+      <!-- email rows injected by JS -->
+    </div>
+    <div class="state-message" id="noResultsState" style="display:none">
+      <div class="icon">🔍</div>
+      <p>No emails matched this filter.</p>
+    </div>
+  </div>
+
+  <!-- Generate bar -->
+  <div class="generate-bar" id="generateBar" style="display:none">
+    <span class="selected-count" id="selectedCount">0 selected</span>
+    <select class="select" id="durationSelect" style="width:90px">
+      <option value="3">3 min</option>
+      <option value="5" selected>5 min</option>
+      <option value="10">10 min</option>
+    </select>
+    <button class="btn btn-primary" id="btnGenerate">Generate →</button>
+  </div>
+
+  <!-- Progress panel (shown during generation) -->
+  <div class="progress-panel" id="progressPanel" style="display:none">
+    <div class="progress-title">Generating briefing</div>
+    <div id="progressSteps"></div>
+    <div id="progressError" class="error-msg" style="display:none"></div>
+  </div>
+
+  <!-- Audio player (shown after generation) -->
+  <div class="audio-panel" id="audioPanel" style="display:none">
+    <div class="audio-title">Your briefing is ready</div>
+    <audio id="audioPlayer" controls></audio>
+    <a class="open-app-link" id="openAppLink" href="#" target="_blank">
+      Open full app for transcript &amp; analytics →
+    </a>
+  </div>
+
+</div>
+
+<script src="popup.js" type="module"></script>
+</body>
+</html>

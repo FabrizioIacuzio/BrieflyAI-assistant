@@ -281,6 +281,81 @@ def answer_briefing_question(briefing_script: str, emails_df, question: str) -> 
     return resp.choices[0].message.content.strip()
 
 
+def multi_agent_debate(script: str, emails_df, analytics_df) -> dict:
+    """
+    Runs a multi-agent evaluation where three personas debate the briefing:
+      · Chief Risk Officer (CRO) — risk-focused, conservative
+      · Trader — opportunity-focused, actionable
+      · Analyst — balanced, data-driven
+    Returns a dict with keys: "cro", "trader", "analyst", "consensus"
+    """
+    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+
+    # Build a compact context: script excerpt + top analytics data
+    script_excerpt = script[:1500] if script else ""
+
+    articles_summary = ""
+    if analytics_df is not None and not (hasattr(analytics_df, "empty") and analytics_df.empty):
+        rows = []
+        for _, r in analytics_df.iterrows():
+            sentiment = r.get("sentiment", "Neutral")
+            urgency = r.get("urgency", 5)
+            impact = r.get("market_impact", 5)
+            summary = str(r.get("one_line_summary", ""))[:80]
+            rows.append(f"  - {summary} [Sentiment: {sentiment}, Urgency: {urgency}/10, Impact: {impact}/10]")
+        articles_summary = "\n".join(rows[:10])
+
+    prompt = f"""You are simulating a financial war room debate. Three experts have just heard this briefing and must evaluate it.
+
+BRIEFING EXCERPT:
+{script_excerpt}
+
+ARTICLE ANALYTICS:
+{articles_summary}
+
+Give each expert's reaction in 2-3 sentences from their specific perspective. Then write a one-sentence consensus.
+
+Return ONLY a valid JSON object in this exact format:
+{{
+    "cro": "...",
+    "trader": "...",
+    "analyst": "...",
+    "consensus": "..."
+}}
+
+Expert roles:
+- cro: Chief Risk Officer. Focuses on downside risks, tail risks, portfolio protection. Identifies what could go wrong.
+- trader: Active Trader. Focuses on actionable opportunities, entry/exit signals, sector rotations from this news.
+- analyst: Research Analyst. Gives a balanced data-driven view, questions assumptions, contextualises the data.
+- consensus: One sentence that all three could agree on.
+
+Return ONLY the JSON object."""
+
+    for attempt in range(3):
+        if attempt > 0:
+            prompt = "CORRECTION: Return ONLY valid JSON, no markdown fences.\n\n" + prompt
+        try:
+            resp = client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model="llama-3.3-70b-versatile",
+                temperature=0.5,
+                max_tokens=500,
+            )
+            raw = _strip_fences(resp.choices[0].message.content)
+            data = json.loads(raw)
+            assert all(k in data for k in ("cro", "trader", "analyst", "consensus"))
+            return data
+        except Exception:
+            continue
+
+    return {
+        "cro": "Unable to generate risk assessment at this time.",
+        "trader": "Unable to generate trading perspective at this time.",
+        "analyst": "Unable to generate analyst view at this time.",
+        "consensus": "Analysis temporarily unavailable.",
+    }
+
+
 def detect_briefing_trends(archive: list) -> str:
     """
     Analyses archived briefings using CONTENT (scripts, topics, article subjects)

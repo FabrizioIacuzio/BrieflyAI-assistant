@@ -1,6 +1,30 @@
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Environment variables — NEVER commit these
 .env
+.env.*
+!.env.example
 .streamlit/secrets.toml
-briefing.mp3
+
+# Database — runtime data, not source
+backend/briefly.db
+backend/briefly.db-shm
+backend/briefly.db-wal
+
+# Audio files — generated at runtime
 *.mp3
+backend/static/
+
+# Frontend build output
+frontend/dist/
+frontend/node_modules/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
