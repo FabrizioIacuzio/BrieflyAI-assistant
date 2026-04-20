@@ -62,6 +62,16 @@ def get_current_user(authorization: str = Header(default="")) -> str:
     return user
 
 
+# ── Google access token store (in-memory, lost on restart) ────────────────────
+_google_tokens: dict[str, str] = {}  # email -> google_access_token
+
+def store_google_access_token(email: str, token: str) -> None:
+    _google_tokens[email] = token
+
+def get_google_access_token(email: str) -> Optional[str]:
+    return _google_tokens.get(email)
+
+
 def get_current_user_query(token: str = Query(default="")) -> str:
     """FastAPI dependency for SSE endpoints (token passed as ?token=xxx query param)."""
     user = get_user_from_token(token)

@@ -7,7 +7,7 @@ import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -103,12 +103,19 @@ async def add_security_headers(request: Request, call_next):
 @app.get("/audio/{filename}")
 def serve_audio(
     filename: str,
-    user: str = Depends(get_current_user),
+    request: Request,
+    token: str = "",
+    authorization: str = Header(default=""),
 ):
     """
     Serve audio files only to authenticated users.
     Validates filename format to prevent directory traversal.
     """
+    from .auth import get_user_from_token
+    bearer = authorization.removeprefix("Bearer ").strip()
+    if not get_user_from_token(bearer or token):
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
     if not _SAFE_AUDIO_RE.match(filename):
         raise HTTPException(status_code=400, detail="Invalid audio filename")
 

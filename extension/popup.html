@@ -62,6 +62,9 @@
       </select>
       <button class="btn btn-secondary" id="btnFetch">Fetch</button>
     </div>
+    <div class="search-row" id="searchRow" style="display:none">
+      <input type="text" id="searchInput" class="search-input" placeholder="Search emails…" autocomplete="off" />
+    </div>
     <div id="fetchError" class="error-msg" style="display:none;margin:6px 0 0"></div>
   </div>
 
@@ -76,7 +79,11 @@
       <p>Fetching emails from Gmail…</p>
     </div>
     <div id="emailItems" style="display:none">
-      <div class="email-count" id="emailCount"></div>
+      <div class="email-count-row">
+        <span class="email-count" id="emailCount"></span>
+        <button class="btn-link" id="btnSelectAll">Select all</button>
+        <button class="btn-link" id="btnClearAll" style="display:none">Clear</button>
+      </div>
       <!-- email rows injected by JS -->
     </div>
     <div class="state-message" id="noResultsState" style="display:none">
@@ -87,8 +94,8 @@
 
   <!-- Generate bar -->
   <div class="generate-bar" id="generateBar" style="display:none">
-    <span class="selected-count" id="selectedCount">0 selected</span>
-    <select class="select" id="durationSelect" style="width:90px">
+    <span class="selected-badge" id="selectedCount">0</span>
+    <select class="select" id="durationSelect" style="width:84px">
       <option value="3">3 min</option>
       <option value="5" selected>5 min</option>
       <option value="10">10 min</option>
@@ -101,15 +108,55 @@
     <div class="progress-title">Generating briefing</div>
     <div id="progressSteps"></div>
     <div id="progressError" class="error-msg" style="display:none"></div>
+    <button class="btn btn-secondary" id="btnBackToEmails" style="display:none;margin-top:8px">← Back</button>
   </div>
 
-  <!-- Audio player (shown after generation) -->
-  <div class="audio-panel" id="audioPanel" style="display:none">
-    <div class="audio-title">Your briefing is ready</div>
-    <audio id="audioPlayer" controls></audio>
-    <a class="open-app-link" id="openAppLink" href="#" target="_blank">
-      Open full app for transcript &amp; analytics →
-    </a>
+  <!-- Results panel (shown after generation) -->
+  <div class="results-panel" id="resultsPanel" style="display:none">
+
+    <!-- Audio -->
+    <div class="res-section">
+      <div class="res-title">Your briefing is ready</div>
+      <audio id="audioPlayer" controls></audio>
+      <div class="speed-row">
+        <span class="speed-label">Speed:</span>
+        <button class="speed-btn active" data-rate="1">1×</button>
+        <button class="speed-btn" data-rate="1.25">1.25×</button>
+        <button class="speed-btn" data-rate="1.5">1.5×</button>
+        <button class="speed-btn" data-rate="2">2×</button>
+      </div>
+    </div>
+
+    <!-- Risk alerts -->
+    <div class="risk-alert" id="riskAlert" style="display:none">
+      <div class="risk-title">⚠ High-Impact Alert</div>
+      <div id="riskList"></div>
+    </div>
+
+    <!-- Topics -->
+    <div class="res-section" id="topicsSection" style="display:none">
+      <div class="res-title">Topics</div>
+      <div class="topics-row" id="topicsList"></div>
+    </div>
+
+    <!-- Article scores -->
+    <div class="res-section" id="analyticsSection" style="display:none">
+      <div class="res-title">Article Scores</div>
+      <div id="analyticsList"></div>
+    </div>
+
+    <!-- Script -->
+    <div class="res-section" id="scriptSection" style="display:none">
+      <div class="res-title">Script</div>
+      <div class="script-text" id="scriptText"></div>
+    </div>
+
+    <!-- Footer -->
+    <div class="res-footer">
+      <button class="btn-link" id="btnNewBriefing">← New briefing</button>
+      <a class="open-app-link" id="openAppLink" href="#" target="_blank">Full app →</a>
+    </div>
+
   </div>
 
 </div>

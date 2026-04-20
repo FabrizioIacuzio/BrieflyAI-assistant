@@ -206,6 +206,19 @@ def run_debate(briefing_id: int, user: str = Depends(get_current_user), db: Sess
     return result
 
 
+def _normalize_gmail_article(a: dict) -> dict:
+    """Map Gmail extension fields (title/source/content) to pipeline fields (Subject/Sender/Content)."""
+    return {
+        "ID":          a.get("ID"),
+        "Subject":     a.get("title")   or a.get("Subject", "(no subject)"),
+        "Sender":      a.get("source")  or a.get("Sender",  "Unknown"),
+        "Content":     a.get("content") or a.get("Content", ""),
+        "description": a.get("description", ""),
+        "publishedAt": a.get("publishedAt", ""),
+        "url":         a.get("url", ""),
+    }
+
+
 @router.post("/generate-raw")
 @limiter.limit("10/minute")
 def start_generation_raw(
@@ -221,13 +234,15 @@ def start_generation_raw(
     if not body.articles:
         raise HTTPException(400, "No articles provided")
 
+    normalized = [_normalize_gmail_article(a) for a in body.articles]
+
     job_id = str(uuid.uuid4())
     _jobs[job_id] = queue.Queue()
 
     from ..database import SessionLocal
     thread = threading.Thread(
         target=_pipeline_worker,
-        args=(job_id, body.articles, body.duration_minutes,
+        args=(job_id, normalized, body.duration_minutes,
               body.voice_accent, "gmail", SessionLocal),
         daemon=True,
     )

@@ -39,7 +39,6 @@ Article:
 
 Return this exact JSON structure:
 {{
-    "email_id":         {article['ID']},
     "sentiment":        "Positive",
     "sentiment_score":  0.65,
     "urgency":          7,
@@ -60,8 +59,8 @@ Field rules:
 """
 
 
-def _validate(parsed: dict, expected_id: int) -> bool:
-    required = ["email_id", "sentiment", "sentiment_score", "urgency", "market_impact", "topics"]
+def _validate(parsed: dict, expected_id) -> bool:
+    required = ["sentiment", "sentiment_score", "urgency", "market_impact", "topics"]
     if not all(k in parsed for k in required):
         return False
     if parsed["sentiment"] not in VALID_SENTIMENTS:
@@ -104,7 +103,7 @@ def analyze_articles(articles: list[dict]) -> list[dict]:
                     parsed["sentiment_score"] = float(parsed["sentiment_score"])
                     parsed["urgency"] = int(parsed["urgency"])
                     parsed["market_impact"] = int(parsed["market_impact"])
-                    parsed["email_id"] = int(article["ID"])
+                    parsed["email_id"] = article["ID"]
                     parsed["subject"] = article.get("Subject", "")
                     parsed["sender"] = article.get("Sender", "")
                     results.append(parsed)
@@ -115,7 +114,7 @@ def analyze_articles(articles: list[dict]) -> list[dict]:
 
         if not success:
             results.append({
-                "email_id": int(article["ID"]),
+                "email_id": article["ID"],
                 "subject": article.get("Subject", "")[:80],
                 "sender": article.get("Sender", ""),
                 "sentiment": "Neutral",

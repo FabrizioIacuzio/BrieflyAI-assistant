@@ -24,7 +24,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
-from ..auth import create_token, get_current_user, revoke_token
+from ..auth import create_token, get_current_user, revoke_token, store_google_access_token
 from ..config import settings
 from ..database import get_db
 from ..models import LoginRequest, LoginResponse, User
@@ -44,7 +44,9 @@ _oauth.register(
     client_id=settings.google_client_id,
     client_secret=settings.google_client_secret,
     server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-    client_kwargs={"scope": "openid email profile"},
+    client_kwargs={
+        "scope": "openid email profile https://www.googleapis.com/auth/gmail.readonly",
+    },
 )
 
 
@@ -115,6 +117,10 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         user.last_login = datetime.utcnow()
     db.commit()
 
+    google_access_token = token_data.get("access_token", "")
+    if google_access_token:
+        store_google_access_token(email, google_access_token)
+
     session_token = create_token(email)
     logger.info("Google OAuth login: %s", email)
 
@@ -175,6 +181,7 @@ async def google_token_exchange(request: Request, body: GoogleTokenRequest, db: 
         user.last_login = datetime.utcnow()
     db.commit()
 
+    store_google_access_token(email, body.google_access_token)
     session_token = create_token(email)
     logger.info("Extension token exchange: %s", email)
     return {"token": session_token, "username": name, "email": email, "picture": picture}

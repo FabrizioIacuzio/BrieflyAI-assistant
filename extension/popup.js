@@ -50,11 +50,19 @@ const selectedCount    = $("selectedCount");
 const durationSelect   = $("durationSelect");
 const btnGenerate      = $("btnGenerate");
 
+const emailListWrap    = $("emailList");
+const controlsSection  = $("controlsSection");
+const searchRow        = $("searchRow");
+const searchInput      = $("searchInput");
+const btnSelectAll     = $("btnSelectAll");
+const btnClearAll      = $("btnClearAll");
+
 const progressPanel    = $("progressPanel");
 const progressSteps    = $("progressSteps");
 const progressError    = $("progressError");
+const btnBackToEmails  = $("btnBackToEmails");
 
-const audioPanel       = $("audioPanel");
+const resultsPanel     = $("resultsPanel");
 const audioPlayer      = $("audioPlayer");
 
 // ── App state ─────────────────────────────────────────────────────────────────
@@ -63,6 +71,24 @@ let brieflyToken = null;        // Briefly session token
 let userProfile = {};           // { username, email, picture }
 let allEmails = [];             // fetched email objects
 let selectedIds = new Set();    // currently checked email IDs
+let searchQuery = "";           // current search filter
+
+// ── Avatar helpers ────────────────────────────────────────────────────────────
+const AVATAR_COLORS = [
+  "#3B82F6","#8B5CF6","#EC4899","#EF4444","#F59E0B",
+  "#10B981","#06B6D4","#6366F1","#F97316","#84CC16",
+];
+function avatarColor(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+function senderInitials(str) {
+  const clean = str.replace(/<[^>]+>/g, "").replace(/["]/g, "").trim();
+  const parts = clean.split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return clean.slice(0, 2).toUpperCase();
+}
 
 const PIPELINE_STEPS = [
   "Clustering & ranking emails",
@@ -156,6 +182,24 @@ async function exchangeForBrieflyToken(googleToken) {
   return res.json(); // { token, username, email, picture }
 }
 
+/**
+ * Silently refresh the Briefly token using the cached Google token.
+ * Returns true if successful, false if the user needs to re-login interactively.
+ */
+async function refreshBrieflyToken() {
+  try {
+    const gToken = await getGoogleToken(false);
+    const data = await exchangeForBrieflyToken(gToken);
+    googleAccessToken = gToken;
+    brieflyToken = data.token;
+    userProfile = { username: data.username, email: data.email, picture: data.picture };
+    await saveSaved({ brieflyToken, userProfile });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function signIn() {
   setError(loginError, "");
   btnSignIn.disabled = true;
@@ -174,6 +218,7 @@ async function signIn() {
     await saveSaved({ brieflyToken, userProfile });
     setUserUI(userProfile);
     showApp();
+    fetchEmails();   // auto-load emails after sign-in
   } catch (e) {
     setError(loginError, e.message);
   } finally {
@@ -206,6 +251,10 @@ async function signOut() {
   userProfile = {};
   allEmails = [];
   selectedIds.clear();
+  searchQuery = "";
+  searchInput.value = "";
+  searchRow.style.display = "none";
+  resultsPanel.style.display = "none";
   showFetchState("empty");
   setError(fetchError, "");
   audioPanel.style.display = "none";
@@ -245,39 +294,57 @@ async function fetchEmails() {
   }
 }
 
+function visibleEmails() {
+  if (!searchQuery) return allEmails;
+  const q = searchQuery.toLowerCase();
+  return allEmails.filter(
+    (e) =>
+      (e.title || "").toLowerCase().includes(q) ||
+      (e.source || "").toLowerCase().includes(q) ||
+      (e.description || "").toLowerCase().includes(q)
+  );
+}
+
 function renderEmailList() {
   if (allEmails.length === 0) {
     showFetchState("none");
+    searchRow.style.display = "none";
     return;
   }
   showFetchState("results");
-  emailCount.textContent = `${allEmails.length} emails fetched`;
+  searchRow.style.display = "block";
 
-  // Clear old rows (keep the count div)
-  const existing = emailItems.querySelectorAll(".email-item");
-  existing.forEach((el) => el.remove());
+  const emails = visibleEmails();
+  emailCount.textContent = searchQuery
+    ? `${emails.length} of ${allEmails.length} emails`
+    : `${allEmails.length} emails`;
 
-  allEmails.forEach((email) => {
+  // Clear old rows (keep the count row)
+  emailItems.querySelectorAll(".email-item").forEach((el) => el.remove());
+
+  emails.forEach((email) => {
+    const color = avatarColor(email.source || email.title || "?");
+    const initials = senderInitials(email.source || "?");
     const row = document.createElement("div");
-    row.className = "email-item";
+    row.className = "email-item" + (selectedIds.has(email.ID) ? " selected" : "");
     row.dataset.id = email.ID;
     row.innerHTML = `
-      <input type="checkbox" class="email-checkbox" data-id="${email.ID}" />
+      <div class="sender-avatar" style="--av-bg:${color}">
+        <span class="av-initials">${escHtml(initials)}</span>
+        <span class="av-check">✓</span>
+      </div>
       <div class="email-body">
-        <div class="email-subject">${escHtml(email.title)}</div>
-        <div class="email-meta">${escHtml(email.source)} · ${formatDate(email.publishedAt)}</div>
+        <div class="email-subject-row">
+          <span class="email-subject">${escHtml(email.title)}</span>
+          <span class="email-date">${formatDate(email.publishedAt)}</span>
+        </div>
+        <div class="email-meta">${escHtml(email.source)}</div>
         <div class="email-preview">${escHtml(email.description)}</div>
       </div>`;
 
-    const cb = row.querySelector(".email-checkbox");
-    cb.addEventListener("change", (e) => {
-      e.stopPropagation();
-      toggleSelect(email.ID, cb.checked, row);
-    });
-    row.addEventListener("click", (e) => {
-      if (e.target === cb) return;
-      cb.checked = !cb.checked;
-      toggleSelect(email.ID, cb.checked, row);
+    row.addEventListener("click", () => {
+      const checked = !selectedIds.has(email.ID);
+      toggleSelect(email.ID, checked, row);
     });
     emailItems.appendChild(row);
   });
@@ -298,8 +365,26 @@ function toggleSelect(id, checked, row) {
 
 function updateSelectedCount() {
   const n = selectedIds.size;
-  selectedCount.textContent = n === 0 ? "None selected" : `${n} selected`;
+  selectedCount.textContent = n === 0 ? "0" : String(n);
   btnGenerate.disabled = n === 0;
+  btnClearAll.style.display = n > 0 ? "inline" : "none";
+  btnSelectAll.style.display = n === allEmails.length ? "none" : "inline";
+}
+
+function showGenerationView() {
+  controlsSection.style.display = "none";
+  emailListWrap.style.display = "none";
+  generateBar.style.display = "none";
+  progressPanel.style.display = "flex";
+  resultsPanel.style.display = "none";
+}
+
+function showEmailView() {
+  controlsSection.style.display = "block";
+  emailListWrap.style.display = "flex";
+  generateBar.style.display = "flex";
+  progressPanel.style.display = "none";
+  resultsPanel.style.display = "none";
 }
 
 // ── Briefing generation ────────────────────────────────────────────────────────
@@ -309,16 +394,12 @@ async function generate() {
 
   const duration = parseInt(durationSelect.value, 10);
 
-  // Switch to progress view
-  generateBar.style.display = "none";
-  progressPanel.style.display = "flex";
-  audioPanel.style.display = "none";
+  showGenerationView();
   setError(progressError, "");
   renderSteps(PIPELINE_STEPS.map((t) => ({ title: t, status: "pending" })));
 
   try {
-    // Start the job
-    const res = await fetch(`${API}/briefings/generate-raw`, {
+    let res = await fetch(`${API}/briefings/generate-raw`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -326,18 +407,31 @@ async function generate() {
       },
       body: JSON.stringify({ articles, duration_minutes: duration, voice_accent: "us" }),
     });
+
+    // Token expired — try a silent refresh once
+    if (res.status === 401) {
+      const refreshed = await refreshBrieflyToken();
+      if (!refreshed) throw new Error("Session expired. Please sign out and sign in again.");
+      res = await fetch(`${API}/briefings/generate-raw`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${brieflyToken}`,
+        },
+        body: JSON.stringify({ articles, duration_minutes: duration, voice_accent: "us" }),
+      });
+    }
+
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || `Error ${res.status}`);
     }
     const { job_id } = await res.json();
 
-    // Stream SSE
     await streamProgress(job_id);
   } catch (e) {
     setError(progressError, e.message);
-    generateBar.style.display = "flex";
-    progressPanel.style.display = "none";
+    btnBackToEmails.style.display = "block";
   }
 }
 
@@ -383,7 +477,7 @@ async function streamProgress(jobId) {
         // Mark all pending as done
         stepTitles.forEach((_, i) => updateStep(i, "done"));
         es.close();
-        showAudio(briefing_id);
+        showBriefingResult(briefing_id);
         resolve();
         return;
       }
@@ -410,17 +504,85 @@ async function streamProgress(jobId) {
   });
 }
 
-function showAudio(briefingId) {
+async function showBriefingResult(briefingId) {
   progressPanel.style.display = "none";
-  audioPanel.style.display = "block";
+  resultsPanel.style.display = "flex";
+
   const audioBase = API.replace(/\/api$/, "");
-  audioPlayer.src = `${audioBase}/audio/briefing_${briefingId}.mp3`;
+  audioPlayer.src = `${audioBase}/audio/briefing_${briefingId}.mp3?token=${encodeURIComponent(brieflyToken)}`;
   audioPlayer.play().catch(() => {});
-  // Set "open full app" link from manifest so no localhost is hardcoded in HTML
-  const appLink = document.getElementById("openAppLink");
-  if (appLink) {
-    const { frontend_url = "http://localhost:5173" } = chrome.runtime.getManifest();
-    appLink.href = frontend_url;
+
+  // Speed buttons
+  resultsPanel.querySelectorAll(".speed-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      resultsPanel.querySelectorAll(".speed-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      audioPlayer.playbackRate = parseFloat(btn.dataset.rate);
+    });
+  });
+
+  // Open app link
+  const appLink = $("openAppLink");
+  const { frontend_url = "http://localhost:5173" } = chrome.runtime.getManifest();
+  if (appLink) appLink.href = frontend_url;
+
+  // Fetch full briefing data
+  try {
+    const res = await fetch(`${API}/briefings/${briefingId}`, {
+      headers: { Authorization: `Bearer ${brieflyToken}` },
+    });
+    if (!res.ok) return;
+    const b = await res.json();
+    renderBriefingData(b);
+  } catch (_) {}
+}
+
+function renderBriefingData(b) {
+  // Topics
+  const clusters = b.clusters?.clusters || [];
+  if (clusters.length) {
+    const topicsSection = $("topicsSection");
+    const topicsList = $("topicsList");
+    topicsList.innerHTML = clusters
+      .sort((a, z) => (a.priority || 99) - (z.priority || 99))
+      .map((c) => `<span class="topic-chip">${escHtml(c.cluster_name)}</span>`)
+      .join("");
+    topicsSection.style.display = "block";
+  }
+
+  // Risk alerts
+  const alerts = (b.analytics || []).filter((r) => r.urgency >= 8 || r.market_impact >= 8);
+  if (alerts.length) {
+    const riskAlert = $("riskAlert");
+    const riskList = $("riskList");
+    riskList.innerHTML = alerts
+      .map((r) => `<div class="risk-item">· ${escHtml(r.one_line_summary)} <span style="opacity:.7">[U${r.urgency}/I${r.market_impact}]</span></div>`)
+      .join("");
+    riskAlert.style.display = "block";
+  }
+
+  // Analytics scores
+  const analytics = b.analytics || [];
+  if (analytics.length) {
+    const analyticsSection = $("analyticsSection");
+    const analyticsList = $("analyticsList");
+    analyticsList.innerHTML = analytics.map((r) => {
+      const cls = { Positive: "sent-positive", Neutral: "sent-neutral", Negative: "sent-negative" }[r.sentiment] || "sent-neutral";
+      return `<div class="score-row">
+        <span class="sentiment-badge ${cls}">${escHtml(r.sentiment)}</span>
+        <span class="score-summary">${escHtml(r.one_line_summary || r.subject || "")}</span>
+        <span class="score-meta">U${r.urgency}·I${r.market_impact}</span>
+      </div>`;
+    }).join("");
+    analyticsSection.style.display = "block";
+  }
+
+  // Script
+  if (b.script) {
+    const scriptSection = $("scriptSection");
+    const scriptText = $("scriptText");
+    scriptText.textContent = b.script;
+    scriptSection.style.display = "block";
   }
 }
 
@@ -455,6 +617,7 @@ async function init() {
     }
     setUserUI(userProfile);
     showApp();
+    fetchEmails();   // auto-load emails on open
   } else {
     showLogin();
   }
@@ -465,6 +628,36 @@ btnSignIn.addEventListener("click", signIn);
 btnSignOut.addEventListener("click", signOut);
 btnFetch.addEventListener("click", fetchEmails);
 btnGenerate.addEventListener("click", generate);
+btnBackToEmails.addEventListener("click", () => {
+  btnBackToEmails.style.display = "none";
+  setError(progressError, "");
+  showEmailView();
+});
+
+$("btnNewBriefing").addEventListener("click", () => {
+  audioPlayer.pause();
+  audioPlayer.src = "";
+  // Reset results sections
+  ["topicsSection","analyticsSection","scriptSection","riskAlert"].forEach((id) => {
+    $(id).style.display = "none";
+  });
+  showEmailView();
+});
+
+searchInput.addEventListener("input", () => {
+  searchQuery = searchInput.value.trim();
+  renderEmailList();
+});
+
+btnSelectAll.addEventListener("click", () => {
+  visibleEmails().forEach((e) => selectedIds.add(e.ID));
+  renderEmailList();
+});
+
+btnClearAll.addEventListener("click", () => {
+  selectedIds.clear();
+  renderEmailList();
+});
 
 btnGenerate.disabled = true;
 
