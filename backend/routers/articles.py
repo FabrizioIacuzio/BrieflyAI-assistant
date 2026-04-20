@@ -1,11 +1,12 @@
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from ..auth import get_current_user
+from ..auth import get_current_user, get_google_access_token
 from ..services.news_service import get_articles, apply_filter
+from ..services.gmail_service import fetch_gmail_inbox
 
 logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
@@ -24,6 +25,26 @@ def refresh_articles(request: Request, user: str = Depends(get_current_user)):
     """Force a cache refresh — rate limited to prevent NewsAPI quota exhaustion."""
     articles, source = get_articles(force_refresh=True)
     return {"articles": articles, "source": source}
+
+
+@router.get("/gmail")
+@limiter.limit("10/minute")
+async def list_gmail_articles(request: Request, user: str = Depends(get_current_user)):
+    """Return the user's Gmail inbox in article format."""
+    token = get_google_access_token(user)
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="Gmail not connected. Please sign out and sign in again with Google."
+        )
+    try:
+        articles = await fetch_gmail_inbox(token, max_results=50)
+        return {"articles": articles, "source": "Gmail Inbox"}
+    except PermissionError:
+        raise HTTPException(status_code=401, detail="Gmail access expired. Please sign in again.")
+    except Exception as e:
+        logger.error("Gmail fetch error for %s: %s", user, e)
+        raise HTTPException(status_code=500, detail="Failed to fetch Gmail inbox.")
 
 
 @router.get("/filter/{filter_name}")

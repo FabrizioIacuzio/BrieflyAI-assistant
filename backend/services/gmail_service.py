@@ -1,0 +1,136 @@
+"""
+gmail_service.py — Fetch Gmail inbox server-side using a stored Google access token.
+Maps Gmail messages to the article format expected by the frontend.
+"""
+import base64
+import re
+
+import httpx
+
+GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
+
+_FINANCIAL_KW = re.compile(
+    r"stock|market|equity|bond|yield|\betf\b|nasdaq|s&p 500|dow |earnings|"
+    r"revenue|inflation|federal reserve|\bfed\b|\becb\b|interest rate|\bgdp\b|"
+    r"bitcoin|\bcrypto\b|oil price|gold price|commodity|portfolio|dividend|"
+    r"merger|acquisition|\bipo\b|quarterly|hedge fund|bloomberg|reuters|"
+    r"cnbc|wall street|goldman|jpmorgan|morgan stanley|barclays|blackrock",
+    re.IGNORECASE,
+)
+
+_TOPIC_PATTERNS = [
+    ("AI & Tech",     re.compile(r"ai |artificial intelligence|nvidia|microsoft|apple|google|meta|semiconductor|chip|software|cloud|openai|\bllm\b", re.I)),
+    ("Crypto",        re.compile(r"bitcoin|\bethereum\b|\bcrypto\b|blockchain|defi|\bbtc\b|\beth\b|coinbase", re.I)),
+    ("Central Banks", re.compile(r"federal reserve|\bfed\b|\becb\b|\bboe\b|monetary policy|interest rate|rate cut|rate hike|basis point", re.I)),
+    ("Energy",        re.compile(r"\boil\b|\bgas\b|\benergy\b|opec|crude|brent|wti|renewable|solar|wind|\blng\b", re.I)),
+    ("Macro",         re.compile(r"\bgdp\b|recession|unemployment|\bcpi\b|\bppi\b|deflation|macro|payroll|deficit", re.I)),
+    ("Equities",      re.compile(r"\bstock\b|equity|s&p|nasdaq|\bdow\b|earnings|\bipo\b|dividend|buyback|rally|bear market", re.I)),
+    ("Commodities",   re.compile(r"\bgold\b|silver|copper|wheat|corn|commodity|futures|aluminum|lithium", re.I)),
+    ("Retail",        re.compile(r"\bretail\b|consumer|amazon|walmart|e-commerce|spending|consumer confidence", re.I)),
+]
+
+_URGENCY_KW = re.compile(
+    r"breaking|urgent|flash|alert|crash|plunge|surge|soar|rally|record|tumble|spike|meltdown|collapse",
+    re.IGNORECASE,
+)
+
+
+def _decode_b64(s: str) -> str:
+    s = s.replace("-", "+").replace("_", "/")
+    try:
+        return base64.b64decode(s + "==").decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def _extract_body(part: dict) -> str:
+    if not part:
+        return ""
+    if part.get("mimeType") == "text/plain":
+        data = part.get("body", {}).get("data", "")
+        return _decode_b64(data) if data else ""
+    for sub in part.get("parts", []):
+        text = _extract_body(sub)
+        if text:
+            return text
+    return ""
+
+
+def _get_header(headers: list, name: str) -> str:
+    name_lower = name.lower()
+    for h in headers:
+        if h.get("name", "").lower() == name_lower:
+            return h.get("value", "")
+    return ""
+
+
+def _classify(subject: str, body: str) -> tuple[bool, str, int]:
+    combined = f"{subject} {body[:600]}"
+    is_financial = bool(_FINANCIAL_KW.search(combined))
+    topic = "Other"
+    for name, pat in _TOPIC_PATTERNS:
+        if pat.search(combined):
+            topic = name
+            break
+    urgency_hits = len(_URGENCY_KW.findall(combined))
+    urgency_score = min(urgency_hits * 3 + (5 if is_financial else 2), 10)
+    return is_financial, topic, urgency_score
+
+
+async def fetch_gmail_inbox(access_token: str, max_results: int = 50) -> list[dict]:
+    """Fetch recent Gmail messages and return them in article format."""
+    auth_headers = {"Authorization": f"Bearer {access_token}"}
+    articles = []
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            f"{GMAIL_BASE}/messages",
+            headers=auth_headers,
+            params={"maxResults": max_results},
+        )
+        if resp.status_code == 401:
+            raise PermissionError("Google token expired or revoked")
+        resp.raise_for_status()
+
+        message_refs = resp.json().get("messages", [])
+
+        for ref in message_refs:
+            try:
+                r = await client.get(
+                    f"{GMAIL_BASE}/messages/{ref['id']}",
+                    headers=auth_headers,
+                    params={"format": "full"},
+                )
+                r.raise_for_status()
+                msg = r.json()
+
+                hdrs    = msg.get("payload", {}).get("headers", [])
+                subject = _get_header(hdrs, "subject") or "(no subject)"
+                sender  = _get_header(hdrs, "from")    or "Unknown"
+                date    = _get_header(hdrs, "date")    or ""
+                body    = _extract_body(msg.get("payload", {}))
+
+                is_financial, topic, urgency = _classify(subject, body)
+
+                articles.append({
+                    # Web app fields
+                    "ID":           ref["id"],
+                    "Subject":      subject,
+                    "Sender":       sender,
+                    "Date":         date[:40],
+                    "Content":      body[:3000],
+                    "URL":          f"https://mail.google.com/mail/u/0/#inbox/{ref['id']}",
+                    "is_financial": is_financial,
+                    "topic":        topic,
+                    "urgency_kw":   urgency,
+                    # generate-raw compatible fields (same data, different keys)
+                    "title":        subject,
+                    "source":       sender,
+                    "description":  body[:400].replace("\n", " ").strip(),
+                    "content":      body[:3000],
+                    "publishedAt":  date,
+                })
+            except Exception:
+                continue
+
+    return articles

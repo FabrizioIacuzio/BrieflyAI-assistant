@@ -31,6 +31,62 @@ export const useBriefingStore = create((set, get) => ({
   trendAnalysis: null,
   trendLoading: false,
 
+  // Gmail articles (raw objects) — uses /briefings/generate-raw
+  startGenerationRaw: async (articles, { duration, voiceAccent }) => {
+    set({
+      generating: true, genError: null,
+      steps: STEPS.map((s) => ({ ...s, status: "pending" })),
+      current: null,
+      chatMessages: [],
+    });
+    try {
+      const { data } = await api.post("/briefings/generate-raw", {
+        articles,
+        duration_minutes: duration,
+        voice_accent: voiceAccent,
+      });
+      const { job_id } = data;
+      set({ jobId: job_id });
+
+      const token = useAuthStore.getState().token;
+      await new Promise((resolve, reject) => {
+        fetchEventSource(`/api/briefings/stream/${job_id}?token=${token}`, {
+          onmessage(ev) {
+            try {
+              const msg = JSON.parse(ev.data);
+              if (msg.step === "complete") {
+                api.get(`/briefings/${msg.briefing_id}`).then(({ data: b }) => {
+                  set({ current: b, generating: false });
+                  get().fetchArchive();
+                });
+                resolve();
+                return;
+              }
+              if (msg.step === "error") {
+                set({ genError: msg.message, generating: false });
+                reject(new Error(msg.message));
+                return;
+              }
+              if (typeof msg.step === "number") {
+                set((s) => ({
+                  steps: s.steps.map((st, i) =>
+                    i === msg.step ? { ...st, status: msg.status } : st
+                  ),
+                }));
+              }
+            } catch (_) {}
+          },
+          onerror(err) {
+            set({ genError: "Stream error", generating: false });
+            reject(err);
+          },
+        });
+      });
+    } catch (e) {
+      set({ genError: e.message, generating: false });
+    }
+  },
+
   startGeneration: async (articleIds, { duration, voiceAccent, filterUsed }) => {
     set({
       generating: true, genError: null,

@@ -41,13 +41,13 @@ function urgencyColor(u) {
 
 export default function InboxPage() {
   const {
-    articles, loading, source, filter, duration, voiceAccent,
+    articles, loading, error, source, isGmail, filter, duration, voiceAccent,
     selectedIds, starredIds, search,
     applyFilter, toggleSelected, toggleStar, refreshArticles,
-    setSearch, setDuration, setVoiceAccent, filteredArticles,
+    setSearch, setDuration, setVoiceAccent, filteredArticles, getSelectedArticles,
   } = useArticleStore();
 
-  const { startGeneration, generating, current } = useBriefingStore();
+  const { startGeneration, startGenerationRaw, generating, current } = useBriefingStore();
   const [expandedId, setExpandedId] = useState(null);
   const [starredOnly, setStarredOnly] = useState(false);
 
@@ -59,11 +59,12 @@ export default function InboxPage() {
   const noise = displayed.filter((a) => !a.is_financial);
 
   const handleGenerate = () => {
-    startGeneration(Array.from(selectedIds), {
-      duration,
-      voiceAccent,
-      filterUsed: filter,
-    });
+    if (isGmail) {
+      const selected = getSelectedArticles();
+      startGenerationRaw(selected, { duration, voiceAccent });
+    } else {
+      startGeneration(Array.from(selectedIds), { duration, voiceAccent, filterUsed: filter });
+    }
   };
 
   return (
@@ -73,6 +74,7 @@ export default function InboxPage() {
         <div>
           <h1 className="text-xl font-bold text-slate-900">Inbox</h1>
           <p className="text-sm text-slate-500 mt-0.5">
+            {source && <span className="font-medium text-blue-600">{source} · </span>}
             {financial.length} financial · {noise.length} other · {selectedIds.size} selected
           </p>
         </div>
@@ -147,9 +149,22 @@ export default function InboxPage() {
         </label>
       </div>
 
+      {/* Gmail reconnect prompt */}
+      {error === "gmail_auth" && (
+        <div className="card p-5 border-amber-200 bg-amber-50 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-amber-800">Gmail not connected</p>
+            <p className="text-xs text-amber-600 mt-0.5">Sign out and sign back in with Google to load your inbox.</p>
+          </div>
+          <a href="/api/auth/google" className="btn-primary text-sm px-4 py-2">
+            Reconnect Gmail →
+          </a>
+        </div>
+      )}
+
       {/* Article table */}
       {loading ? (
-        <div className="card p-10 text-center text-slate-400">Loading articles…</div>
+        <div className="card p-10 text-center text-slate-400">Loading Gmail inbox…</div>
       ) : (
         <div className="card overflow-hidden">
           {/* Financial */}
