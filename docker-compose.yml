@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: briefly
+      POSTGRES_USER: briefly
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U briefly"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://briefly:${POSTGRES_PASSWORD}@db:5432/briefly
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      NEWSAPI_KEY: ${NEWSAPI_KEY}
+      DEMO_USER: ${DEMO_USER}
+      DEMO_PASSWORD: ${DEMO_PASSWORD}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      SECRET_KEY: ${SECRET_KEY}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN}
+      EXTRA_CORS_ORIGINS: ${EXTRA_CORS_ORIGINS:-}
+      DEBUG: ${DEBUG:-false}
+    volumes:
+      - audio_files:/app/backend/static/audio
+
+volumes:
+  postgres_data:
+  audio_files:

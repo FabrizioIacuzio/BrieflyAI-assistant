@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { backendOrigin } from "../api/client";
 import { useArticleStore, FILTER_OPTIONS } from "../store/useArticleStore";
 import { useBriefingStore } from "../store/useBriefingStore";
 import BriefingPanel from "../components/BriefingPanel";
@@ -156,7 +157,7 @@ export default function InboxPage() {
             <p className="text-sm font-semibold text-amber-800">Gmail not connected</p>
             <p className="text-xs text-amber-600 mt-0.5">Sign out and sign back in with Google to load your inbox.</p>
           </div>
-          <a href="/api/auth/google" className="btn-primary text-sm px-4 py-2">
+          <a href={`${backendOrigin}/api/auth/google`} className="btn-primary text-sm px-4 py-2">
             Reconnect Gmail →
           </a>
         </div>

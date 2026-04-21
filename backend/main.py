@@ -75,7 +75,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=settings.get_cors_origins(),
     # Only allow the specific installed extension ID, not all chrome-extension:// origins.
     # Update this when deploying the extension to the Chrome Web Store.
     allow_origin_regex=r"chrome-extension://dhekfikliidfopcllbkdgpekepnipcli",

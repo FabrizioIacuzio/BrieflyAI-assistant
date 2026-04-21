@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
-import api from "../api/client";
+import api, { apiBase } from "../api/client";
 import { useAuthStore } from "./useAuthStore";
 
 const STEPS = [
@@ -50,7 +50,7 @@ export const useBriefingStore = create((set, get) => ({
 
       const token = useAuthStore.getState().token;
       await new Promise((resolve, reject) => {
-        fetchEventSource(`/api/briefings/stream/${job_id}?token=${token}`, {
+        fetchEventSource(`${apiBase}/briefings/stream/${job_id}?token=${token}`, {
           onmessage(ev) {
             try {
               const msg = JSON.parse(ev.data);
@@ -107,7 +107,7 @@ export const useBriefingStore = create((set, get) => ({
 
       const token = useAuthStore.getState().token;
       await new Promise((resolve, reject) => {
-        fetchEventSource(`/api/briefings/stream/${job_id}?token=${token}`, {
+        fetchEventSource(`${apiBase}/briefings/stream/${job_id}?token=${token}`, {
           onmessage(ev) {
             try {
               const msg = JSON.parse(ev.data);

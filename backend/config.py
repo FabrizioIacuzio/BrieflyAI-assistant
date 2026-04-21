@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     # Where to redirect after Google login (frontend)
     frontend_origin: str = "http://localhost:5173"
 
+    # Comma-separated list of allowed CORS origins (in addition to frontend_origin)
+    extra_cors_origins: str = ""
+
+    # Database — defaults to SQLite for local dev, set to PostgreSQL for production
+    # Example: postgresql://user:password@localhost:5432/briefly
+    database_url: str = ""
+
     # Runtime flag
     debug: bool = False
 
@@ -38,6 +45,15 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         extra = "ignore"
+
+    def get_cors_origins(self) -> list[str]:
+        origins = {self.frontend_origin, "http://localhost:5173", "http://127.0.0.1:5173"}
+        if self.extra_cors_origins:
+            for o in self.extra_cors_origins.split(","):
+                o = o.strip()
+                if o:
+                    origins.add(o)
+        return list(origins)
 
 
 settings = Settings()

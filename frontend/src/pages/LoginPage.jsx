@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../api/client";
+import api, { backendOrigin } from "../api/client";
 import { useAuthStore } from "../store/useAuthStore";
 
 const FEATURES = [
@@ -58,7 +58,7 @@ export default function LoginPage() {
 
         {/* Google sign-in */}
         <a
-          href="/api/auth/google"
+          href={`${backendOrigin}/api/auth/google`}
           className="flex items-center justify-center gap-3 w-full border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
         >
           <GoogleIcon />
