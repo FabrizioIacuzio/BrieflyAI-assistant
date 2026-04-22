@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # SessionMiddleware secret — MUST be set in production
     secret_key: str = _INSECURE_DEFAULT_KEY
 
+    # Public URL of this backend (used to build OAuth redirect URIs)
+    backend_origin: str = ""
+
     # Where to redirect after Google login (frontend)
     frontend_origin: str = "http://localhost:5173"
 

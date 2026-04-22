@@ -79,7 +79,8 @@ async def google_login(request: Request):
     """Redirect the browser to Google's consent screen."""
     if not settings.google_client_id:
         raise HTTPException(status_code=501, detail="Google OAuth is not configured.")
-    redirect_uri = f"{request.base_url}api/auth/google/callback"
+    base = settings.backend_origin.rstrip("/") if settings.backend_origin else str(request.base_url).rstrip("/")
+    redirect_uri = f"{base}/api/auth/google/callback"
     return await _oauth.google.authorize_redirect(request, redirect_uri)
 
 
