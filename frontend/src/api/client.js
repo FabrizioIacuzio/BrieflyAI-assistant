@@ -18,7 +18,11 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (r) => r,
   (err) => {
-    if (err.response?.status === 401) {
+    const url = err.config?.url || "";
+    const isAuthError = err.response?.status === 401 &&
+      !url.includes("/gmail") &&
+      !url.includes("/articles");
+    if (isAuthError) {
       useAuthStore.getState().logout();
     }
     return Promise.reject(err);
