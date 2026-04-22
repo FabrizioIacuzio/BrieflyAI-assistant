@@ -43,7 +43,8 @@ def _get_articles_by_ids(article_ids: list[int]) -> list[dict]:
 
 
 def _pipeline_worker(job_id: str, selected: list[dict], duration: int,
-                     voice_accent: str, filter_used: str, db_session_factory) -> None:
+                     voice_accent: str, filter_used: str, db_session_factory,
+                     preference_hint: str = "") -> None:
     """Run in a background thread; puts SSE events into the job queue."""
     q = _jobs[job_id]
 
@@ -51,9 +52,9 @@ def _pipeline_worker(job_id: str, selected: list[dict], duration: int,
         q.put({"step": step, "status": status, **extra})
 
     try:
-        # Stage 1 — Cluster & rank
+        # Stage 1 — Cluster & rank (with adaptive preference signal)
         emit(0, "running", title="Clustering & ranking articles")
-        clusters_data = cluster_and_rank(selected)
+        clusters_data = cluster_and_rank(selected, preference_hint=preference_hint)
         emit(0, "done")
 
         # Stage 2 — Generate script
@@ -113,10 +114,13 @@ def _pipeline_worker(job_id: str, selected: list[dict], duration: int,
 
 @router.post("/generate")
 @limiter.limit("10/minute")
-def start_generation(request: Request, body: GenerateRequest, user: str = Depends(get_current_user)):
+def start_generation(request: Request, body: GenerateRequest,
+                     user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     selected = _get_articles_by_ids(body.article_ids)
     if not selected:
         raise HTTPException(400, "No valid article IDs provided")
+
+    preference_hint = _get_feedback_signal(db)
 
     job_id = str(uuid.uuid4())
     _jobs[job_id] = queue.Queue()
@@ -125,7 +129,7 @@ def start_generation(request: Request, body: GenerateRequest, user: str = Depend
     thread = threading.Thread(
         target=_pipeline_worker,
         args=(job_id, selected, body.duration_minutes,
-              body.voice_accent, body.filter_used, SessionLocal),
+              body.voice_accent, body.filter_used, SessionLocal, preference_hint),
         daemon=True,
     )
     thread.start()
@@ -179,10 +183,61 @@ def submit_feedback(briefing_id: int, body: FeedbackRequest,
     b = db.query(Briefing).filter(Briefing.id == briefing_id).first()
     if not b:
         raise HTTPException(404, "Briefing not found")
-    b.feedback = body.feedback
+    b.feedback = str(body.rating)
     b.feedback_note = body.note
     db.commit()
     return {"ok": True}
+
+
+def _get_feedback_signal(db: Session) -> str:
+    """Analyse past feedback to build a preference hint for the ranking LLM."""
+    recent = (
+        db.query(Briefing)
+        .filter(Briefing.feedback.isnot(None))
+        .order_by(Briefing.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    if not recent:
+        return ""
+
+    high_topics: dict[str, int] = {}
+    low_topics:  dict[str, int] = {}
+    high_senders: dict[str, int] = {}
+
+    for b in recent:
+        try:
+            rating = int(b.feedback)
+        except (TypeError, ValueError):
+            continue
+        is_high = rating >= 4
+        is_low  = rating <= 2
+        if not is_high and not is_low:
+            continue
+        for item in b.analytics():
+            for topic in (item.get("topics") or []):
+                if is_high:
+                    high_topics[topic]  = high_topics.get(topic, 0) + 1
+                else:
+                    low_topics[topic]   = low_topics.get(topic, 0) + 1
+        if is_high:
+            for art in b.articles():
+                s = art.get("Sender") or art.get("source", "")
+                if s:
+                    high_senders[s] = high_senders.get(s, 0) + 1
+
+    parts = []
+    if high_topics:
+        top = sorted(high_topics.items(), key=lambda x: -x[1])[:4]
+        parts.append("Prioritise: " + ", ".join(f"{t}({n}×)" for t, n in top))
+    if low_topics:
+        low = sorted(low_topics.items(), key=lambda x: -x[1])[:3]
+        parts.append("De-prioritise: " + ", ".join(f"{t}({n}×)" for t, n in low))
+    if high_senders:
+        top_s = sorted(high_senders.items(), key=lambda x: -x[1])[:3]
+        parts.append("Trusted sources: " + ", ".join(s for s, _ in top_s))
+
+    return " | ".join(parts)
 
 
 @router.post("/{briefing_id}/chat", response_model=ChatResponse)

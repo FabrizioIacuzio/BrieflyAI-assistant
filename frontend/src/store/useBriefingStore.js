@@ -159,12 +159,12 @@ export const useBriefingStore = create((set, get) => ({
     }
   },
 
-  submitFeedback: async (briefingId, feedback, note = "") => {
-    await api.post(`/briefings/${briefingId}/feedback`, { feedback, note });
+  submitFeedback: async (briefingId, rating, note = "") => {
+    await api.post(`/briefings/${briefingId}/feedback`, { rating, note });
     set((s) => ({
-      current: s.current?.id === briefingId ? { ...s.current, feedback, feedback_note: note } : s.current,
+      current: s.current?.id === briefingId ? { ...s.current, feedback: rating, feedback_note: note } : s.current,
       archive: s.archive.map((b) =>
-        b.id === briefingId ? { ...b, feedback, feedback_note: note } : b
+        b.id === briefingId ? { ...b, feedback: rating, feedback_note: note } : b
       ),
     }));
   },

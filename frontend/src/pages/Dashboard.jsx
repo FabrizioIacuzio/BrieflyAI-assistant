@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Routes, Route, NavLink, useNavigate } from "react-router-dom";
+import { Routes, Route, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "../store/useAuthStore";
 import { useArticleStore } from "../store/useArticleStore";
 import { useBriefingStore } from "../store/useBriefingStore";
@@ -21,6 +21,7 @@ export default function Dashboard() {
   const { fetchArticles, source } = useArticleStore();
   const { fetchArchive } = useBriefingStore();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     fetchArticles();
@@ -99,12 +100,14 @@ export default function Dashboard() {
 
       {/* Main */}
       <main className="flex-1 overflow-y-auto">
-        <Routes>
-          <Route path="/" element={<InboxPage />} />
-          <Route path="/archive" element={<ArchivePage />} />
-          <Route path="/schedule" element={<SchedulePage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-        </Routes>
+        <div key={location.pathname} className="page-enter">
+          <Routes>
+            <Route path="/" element={<InboxPage />} />
+            <Route path="/archive" element={<ArchivePage />} />
+            <Route path="/schedule" element={<SchedulePage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Routes>
+        </div>
       </main>
     </div>
   );

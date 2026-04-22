@@ -14,7 +14,6 @@ from .database import Base
 
 # ── Allowed values ─────────────────────────────────────────────────────────────
 _VALID_VOICE_ACCENTS = {"us", "co.uk", "com.au", "co.in", "ie"}
-_VALID_FEEDBACK      = {"up", "down"}
 _EMAIL_RE            = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,255}$")
 # Reject RFC-1918 and link-local ranges to prevent SSRF via smtp_host
 _PRIVATE_IP_RE       = re.compile(
@@ -156,8 +155,8 @@ class GenerateRawRequest(BaseModel):
         return cleaned
 
 class FeedbackRequest(BaseModel):
-    feedback: Literal["up", "down"]
-    note:     str = Field("", max_length=1000)
+    rating: int = Field(..., ge=1, le=5)
+    note:   str = Field("", max_length=1000)
 
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=500)
@@ -237,7 +236,7 @@ class BriefingOut(BaseModel):
     clusters:         dict
     analytics:        list[dict]
     articles:         list[dict]
-    feedback:         Optional[str]
+    feedback:         Optional[int]
     feedback_note:    Optional[str]
     debate:           Optional[dict]
     scheduled:        bool
@@ -255,7 +254,7 @@ class BriefingOut(BaseModel):
             clusters=b.clusters(),
             analytics=b.analytics(),
             articles=b.articles(),
-            feedback=b.feedback,
+            feedback=int(b.feedback) if b.feedback and str(b.feedback).isdigit() else None,
             feedback_note=b.feedback_note,
             debate=b.debate(),
             scheduled=b.scheduled or False,

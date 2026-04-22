@@ -43,14 +43,18 @@ def _strip_fences(text: str) -> str:
 
 # ── Stage 1: Cluster & rank ────────────────────────────────────────────────────
 
-def _build_cluster_prompt(items_text: str, attempt: int) -> str:
+def _build_cluster_prompt(items_text: str, attempt: int, preference_hint: str = "") -> str:
     prefix = (
         "CORRECTION: Your last response was invalid JSON. "
         "Return ONLY the raw JSON object — no markdown, no explanation.\n\n"
         if attempt > 0 else ""
     )
+    preference_section = (
+        f"\nUser preference signal (adjust ranking accordingly): {preference_hint}\n"
+        if preference_hint else ""
+    )
     return f"""{prefix}You are a senior financial analyst. Group the news items below by topic and rank them by importance.
-
+{preference_section}
 Return ONLY a valid JSON object in this exact format:
 {{
     "clusters": [
@@ -72,7 +76,7 @@ News items:
 """
 
 
-def cluster_and_rank(articles: list[dict]) -> dict:
+def cluster_and_rank(articles: list[dict], preference_hint: str = "") -> dict:
     """Stage 1: cluster and rank articles. Returns clusters_data dict."""
     items_text = "\n".join(
         f"ID {a['ID']}: [{a['Sender']}] {a['Subject']}"
@@ -82,7 +86,7 @@ def cluster_and_rank(articles: list[dict]) -> dict:
     client = _client()
 
     for attempt in range(3):
-        prompt = _build_cluster_prompt(items_text, attempt)
+        prompt = _build_cluster_prompt(items_text, attempt, preference_hint)
         try:
             resp = client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],

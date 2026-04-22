@@ -21,9 +21,9 @@ const SENTIMENT_COLORS = {
 };
 
 const DEBATE_PERSONAS = [
-  { key: "cro",     label: "Chief Risk Officer", icon: "⚠",  color: "border-l-red-500",   bg: "bg-red-50",   text: "text-red-700" },
-  { key: "trader",  label: "Trader",             icon: "📈", color: "border-l-green-500", bg: "bg-green-50", text: "text-green-700" },
-  { key: "analyst", label: "Research Analyst",   icon: "📊", color: "border-l-blue-500",  bg: "bg-blue-50",  text: "text-blue-700" },
+  { key: "cro",     label: "Chief Risk Officer", icon: "⚠", borderColor: "border-l-rose-400",   chipBg: "bg-rose-50",   chipText: "text-rose-700" },
+  { key: "trader",  label: "Active Trader",      icon: "↗", borderColor: "border-l-teal-400",   chipBg: "bg-teal-50",   chipText: "text-teal-700" },
+  { key: "analyst", label: "Research Analyst",   icon: "◎", borderColor: "border-l-indigo-400", chipBg: "bg-indigo-50", chipText: "text-indigo-700" },
 ];
 
 // ── Pipeline progress ─────────────────────────────────────────────────────────
@@ -277,20 +277,24 @@ function DebatePanel({ briefingId }) {
 
   return (
     <div className="space-y-3">
-      {DEBATE_PERSONAS.map(({ key, label, icon, color, bg, text }) => (
-        <div key={key} className={`${bg} border border-l-4 ${color} border-slate-200 rounded-lg p-4`}>
-          <p className={`text-xs font-bold ${text} uppercase tracking-wider mb-1`}>{icon} {label}</p>
+      {DEBATE_PERSONAS.map(({ key, label, icon, borderColor, chipBg, chipText }) => (
+        <div key={key} className={`bg-white border border-slate-100 border-l-4 ${borderColor} rounded-lg p-4 shadow-sm`}>
+          <div className="flex items-center gap-2 mb-2">
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${chipBg} ${chipText}`}>
+              {icon} {label}
+            </span>
+          </div>
           <p className="text-sm text-slate-700 leading-relaxed">{debate[key]}</p>
         </div>
       ))}
       {debate.consensus && (
         <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Consensus</p>
-          <p className="text-sm text-slate-600 italic leading-relaxed">{debate.consensus}</p>
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Consensus</p>
+          <p className="text-sm text-slate-600 leading-relaxed">{debate.consensus}</p>
         </div>
       )}
       <button onClick={handleRun} disabled={loading} className="btn-ghost text-xs">
-        {loading ? "Regenerating…" : "↺ Regenerate debate"}
+        {loading ? "Regenerating…" : "↺ Regenerate"}
       </button>
     </div>
   );
@@ -300,31 +304,48 @@ function DebatePanel({ briefingId }) {
 
 function FeedbackPanel({ briefingId }) {
   const { submitFeedback, current } = useBriefingStore();
-  const [note, setNote] = useState("");
-  const feedback = current?.feedback;
+  const [note, setNote]       = useState("");
+  const [hovered, setHovered] = useState(0);
+  const [saved, setSaved]     = useState(false);
+  const feedback = current?.feedback; // 1–5 integer or null
+
+  const handleRate = async (rating) => {
+    await submitFeedback(briefingId, rating, "");
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  };
+
+  const handleNoteBlur = () => {
+    if (note.trim() && feedback) submitFeedback(briefingId, feedback, note);
+  };
+
+  const displayRating = hovered || feedback || 0;
 
   return (
     <div>
-      <p className="label mb-3">Was this briefing useful?</p>
-      <div className="flex gap-3">
-        <button
-          onClick={() => submitFeedback(briefingId, "up", note)}
-          className={`text-2xl transition-transform hover:scale-110 ${feedback === "up" ? "opacity-100" : "opacity-40 hover:opacity-80"}`}
-        >👍</button>
-        <button
-          onClick={() => submitFeedback(briefingId, "down", note)}
-          className={`text-2xl transition-transform hover:scale-110 ${feedback === "down" ? "opacity-100" : "opacity-40 hover:opacity-80"}`}
-        >👎</button>
+      <p className="label mb-3">Rate this briefing</p>
+      <div className="flex gap-1">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <button
+            key={star}
+            onMouseEnter={() => setHovered(star)}
+            onMouseLeave={() => setHovered(0)}
+            onClick={() => handleRate(star)}
+            className={`text-2xl leading-none transition-all hover:scale-110 ${
+              star <= displayRating ? "text-amber-400" : "text-slate-200 hover:text-amber-200"
+            }`}
+          >★</button>
+        ))}
       </div>
-      {feedback === "up" && <p className="text-sm text-green-600 mt-2">Thanks! Glad it helped.</p>}
-      {feedback === "down" && (
+      {saved && <p className="text-sm text-green-600 mt-2">Thanks for your feedback!</p>}
+      {!saved && feedback != null && feedback <= 2 && (
         <div className="mt-3">
           <input
             className="input text-sm"
-            placeholder="What could be improved?"
+            placeholder="What could be improved? (optional)"
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            onBlur={() => note && submitFeedback(briefingId, "down", note)}
+            onBlur={handleNoteBlur}
           />
         </div>
       )}
