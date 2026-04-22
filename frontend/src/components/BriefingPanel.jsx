@@ -1,7 +1,8 @@
 import { useState, useRef } from "react";
 import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
+  Cell, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine,
+  ScatterChart, Scatter, Legend,
 } from "recharts";
 import { useBriefingStore } from "../store/useBriefingStore";
 import { useAuthStore } from "../store/useAuthStore";
@@ -102,174 +103,149 @@ function AudioPlayer({ audioUrl }) {
 function InsightsPanel({ analytics }) {
   if (!analytics?.length) return null;
 
-  // Sentiment distribution
-  const sentimentCounts = analytics.reduce((acc, r) => {
-    acc[r.sentiment] = (acc[r.sentiment] || 0) + 1;
-    return acc;
-  }, {});
-  const sentimentPie = Object.entries(sentimentCounts).map(([name, value]) => ({
-    name, value, color: SENTIMENT_COLORS[name]?.hex || "#94A3B8",
-  }));
+  const pos = analytics.filter(r => r.sentiment === "Positive").length;
+  const neu = analytics.filter(r => r.sentiment === "Neutral").length;
+  const neg = analytics.filter(r => r.sentiment === "Negative").length;
+  const avgImpact   = (analytics.reduce((s, r) => s + r.market_impact, 0) / analytics.length).toFixed(1);
+  const avgUrgency  = (analytics.reduce((s, r) => s + r.urgency, 0) / analytics.length).toFixed(1);
 
-  // Urgency & Impact per article (top 8 for readability)
-  const barData = analytics.slice(0, 8).map((r) => ({
-    name: (r.one_line_summary || r.subject || "").slice(0, 28) + "…",
-    Urgency: r.urgency,
-    Impact:  r.market_impact,
-  }));
+  // Chart 1 — Sentiment score per article, sorted ascending
+  const sentimentBars = [...analytics]
+    .sort((a, b) => a.sentiment_score - b.sentiment_score)
+    .map(r => ({
+      name:  (r.one_line_summary || "").slice(0, 40) + "…",
+      score: parseFloat((r.sentiment_score ?? 0).toFixed(2)),
+      fill:  SENTIMENT_COLORS[r.sentiment]?.hex || "#94A3B8",
+    }));
 
-  // Topic breakdown
-  const topicCounts = {};
-  analytics.forEach((r) => {
-    (r.topics || []).forEach((t) => {
-      topicCounts[t] = (topicCounts[t] || 0) + 1;
+  // Chart 2 — Urgency vs Market Impact scatter, grouped by sentiment with jitter
+  const jitter = (i, slot) => ((i * 7 + slot * 13) % 19) / 100 - 0.09;
+  const scatterGroups = { Positive: [], Neutral: [], Negative: [] };
+  analytics.forEach((r, i) => {
+    const s = r.sentiment in scatterGroups ? r.sentiment : "Neutral";
+    scatterGroups[s].push({
+      x:     +(r.urgency      + jitter(i, 0)).toFixed(2),
+      y:     +(r.market_impact + jitter(i, 1)).toFixed(2),
+      label: (r.one_line_summary || "").slice(0, 55),
+      rawX:  r.urgency,
+      rawY:  r.market_impact,
     });
   });
-  const topicData = Object.entries(topicCounts)
-    .sort((a, b) => b[1] - a[1])
-    .map(([name, count]) => ({ name, count }));
 
-  // Sentiment score timeline
-  const scoreData = analytics.slice(0, 10).map((r, i) => ({
-    name: `#${i + 1}`,
-    score: parseFloat(r.sentiment_score?.toFixed(2) || "0"),
-    fill: r.sentiment_score > 0.1 ? "#10B981" : r.sentiment_score < -0.1 ? "#EF4444" : "#F59E0B",
-  }));
+  // Chart 3 — Market impact ranking, heat-coloured
+  const impactBars = [...analytics]
+    .sort((a, b) => a.market_impact - b.market_impact)
+    .map(r => ({
+      name:   (r.one_line_summary || "").slice(0, 40) + "…",
+      impact: r.market_impact,
+      fill:   r.market_impact >= 8 ? "#dc2626" : r.market_impact >= 5 ? "#f59e0b" : "#fde68a",
+    }));
 
-  // Key entities (top 10 unique)
-  const entities = [...new Set(analytics.flatMap((r) => r.key_entities || []))].slice(0, 10);
+  const chartH    = Math.max(260, analytics.length * 44);
+  const axisStyle = { tick: { fontSize: 11, fill: "#94A3B8" } };
+  const gridStyle = { strokeDasharray: "3 3", stroke: "#E2E8F0" };
+  const ttStyle   = { fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" };
 
-  const CHART_THEME = {
-    cartesian: { strokeDasharray: "3 3", stroke: "#E2E8F0" },
-    axis:      { tick: { fontSize: 11, fill: "#94A3B8" } },
-  };
+  const KPI_CARDS = [
+    { value: pos,                label: "Positive",    color: "#059669", bg: "#ecfdf5" },
+    { value: neu,                label: "Neutral",     color: "#d97706", bg: "#fffbeb" },
+    { value: neg,                label: "Negative",    color: "#dc2626", bg: "#fef2f2" },
+    { value: `${avgImpact}/10`,  label: "Avg Impact",  color: "#2563eb", bg: "#eff6ff" },
+    { value: `${avgUrgency}/10`, label: "Avg Urgency", color: "#7c3aed", bg: "#f5f3ff" },
+  ];
 
   return (
     <div className="space-y-6">
       <p className="label text-base">Insights</p>
 
-      {/* Row 1: Sentiment donut + Sentiment scores */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Sentiment distribution */}
-        <div className="card p-4">
-          <p className="label mb-3">Sentiment Distribution</p>
-          <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
-              <Pie
-                data={sentimentPie}
-                cx="50%"
-                cy="50%"
-                innerRadius={50}
-                outerRadius={75}
-                paddingAngle={3}
-                dataKey="value"
-              >
-                {sentimentPie.map((entry) => (
-                  <Cell key={entry.name} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip
-                formatter={(v, n) => [v, n]}
-                contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="flex justify-center gap-4 mt-1">
-            {sentimentPie.map((e) => (
-              <div key={e.name} className="flex items-center gap-1.5 text-xs text-slate-600">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ background: e.color }} />
-                {e.name} ({e.value})
-              </div>
-            ))}
+      {/* KPI cards */}
+      <div className="grid grid-cols-5 gap-3">
+        {KPI_CARDS.map(({ value, label, color, bg }) => (
+          <div key={label} className="rounded-xl p-4 border border-slate-100" style={{ background: bg }}>
+            <p className="text-2xl font-black" style={{ color }}>{value}</p>
+            <p className="text-xs font-semibold text-slate-500 mt-1 uppercase tracking-wide">{label}</p>
           </div>
-        </div>
-
-        {/* Sentiment scores bar */}
-        <div className="card p-4">
-          <p className="label mb-3">Sentiment Score per Article</p>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={scoreData} margin={{ top: 4, right: 4, bottom: 4, left: -20 }}>
-              <CartesianGrid {...CHART_THEME.cartesian} />
-              <XAxis dataKey="name" {...CHART_THEME.axis} />
-              <YAxis domain={[-1, 1]} {...CHART_THEME.axis} />
-              <Tooltip
-                formatter={(v) => [v.toFixed(2), "Score"]}
-                contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }}
-              />
-              <Bar dataKey="score" radius={[3, 3, 0, 0]}>
-                {scoreData.map((entry, i) => (
-                  <Cell key={i} fill={entry.fill} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        ))}
       </div>
 
-      {/* Row 2: Urgency & Impact grouped bar */}
+      {/* Chart 1: Sentiment score horizontal bar */}
       <div className="card p-4">
-        <p className="label mb-3">Urgency & Market Impact by Article</p>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={barData} margin={{ top: 4, right: 4, bottom: 40, left: -10 }}>
-            <CartesianGrid {...CHART_THEME.cartesian} />
-            <XAxis
-              dataKey="name"
-              tick={{ fontSize: 10, fill: "#94A3B8" }}
-              angle={-35}
-              textAnchor="end"
-              interval={0}
-            />
-            <YAxis domain={[0, 10]} {...CHART_THEME.axis} />
-            <Tooltip
-              contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }}
-            />
-            <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-            <Bar dataKey="Urgency"  fill="#F59E0B" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="Impact"   fill="#3B82F6" radius={[3, 3, 0, 0]} />
+        <p className="label mb-1">Sentiment Score</p>
+        <p className="text-xs text-slate-400 mb-3">← Bearish &nbsp;|&nbsp; Neutral &nbsp;|&nbsp; Bullish →</p>
+        <ResponsiveContainer width="100%" height={chartH}>
+          <BarChart layout="vertical" data={sentimentBars}
+            margin={{ top: 4, right: 64, bottom: 4, left: 8 }}>
+            <CartesianGrid {...gridStyle} horizontal={false} />
+            <XAxis type="number" domain={[-1.2, 1.2]} {...axisStyle} />
+            <YAxis type="category" dataKey="name" width={200}
+              tick={{ fontSize: 11, fill: "#64748B" }} />
+            <Tooltip formatter={v => [v > 0 ? `+${v.toFixed(2)}` : v.toFixed(2), "Score"]}
+              contentStyle={ttStyle} />
+            <ReferenceLine x={0} stroke="#9ca3af" strokeDasharray="3 3" />
+            <Bar dataKey="score" radius={[0, 3, 3, 0]}
+              label={{ position: "right", fontSize: 11, fill: "#64748B",
+                formatter: v => v > 0 ? `+${v.toFixed(2)}` : v.toFixed(2) }}>
+              {sentimentBars.map((e, i) => <Cell key={i} fill={e.fill} />)}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      {/* Row 3: Topics + Entities */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Topics */}
-        {topicData.length > 0 && (
-          <div className="card p-4">
-            <p className="label mb-3">Topic Breakdown</p>
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart
-                layout="vertical"
-                data={topicData}
-                margin={{ top: 0, right: 16, bottom: 0, left: 60 }}
-              >
-                <CartesianGrid {...CHART_THEME.cartesian} horizontal={false} />
-                <XAxis type="number" allowDecimals={false} {...CHART_THEME.axis} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: "#64748B" }} width={60} />
-                <Tooltip
-                  contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }}
-                />
-                <Bar dataKey="count" fill="#6366F1" radius={[0, 3, 3, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+      {/* Chart 2: Urgency vs Market Impact scatter */}
+      <div className="card p-4">
+        <p className="label mb-3">Urgency vs Market Impact</p>
+        <ResponsiveContainer width="100%" height={420}>
+          <ScatterChart margin={{ top: 10, right: 20, bottom: 48, left: 10 }}>
+            <CartesianGrid {...gridStyle} />
+            <XAxis type="number" dataKey="x" domain={[0, 11]} name="Urgency"
+              label={{ value: "Urgency  (1 = Long-term · 10 = Breaking News)",
+                position: "insideBottom", offset: -12, fontSize: 11, fill: "#94A3B8" }}
+              {...axisStyle} />
+            <YAxis type="number" dataKey="y" domain={[0, 11]} name="Impact"
+              label={{ value: "Market Impact  (1 = Minimal · 10 = Major Move)",
+                angle: -90, position: "insideLeft", offset: 14, fontSize: 11, fill: "#94A3B8" }}
+              {...axisStyle} />
+            <Tooltip cursor={{ strokeDasharray: "3 3" }}
+              content={({ payload }) => {
+                const d = payload?.[0]?.payload;
+                if (!d) return null;
+                return (
+                  <div className="bg-white border border-slate-200 rounded-lg p-3 text-xs shadow-sm max-w-xs">
+                    <p className="font-semibold text-slate-800 mb-1">{d.label}</p>
+                    <p className="text-slate-500">Urgency: <b>{d.rawX}/10</b> · Impact: <b>{d.rawY}/10</b></p>
+                  </div>
+                );
+              }}
+            />
+            <ReferenceLine x={5.5} stroke="#d1d5db" strokeDasharray="4 4" />
+            <ReferenceLine y={5.5} stroke="#d1d5db" strokeDasharray="4 4" />
+            <Legend verticalAlign="bottom" height={32} wrapperStyle={{ fontSize: 12 }} />
+            {Object.entries(scatterGroups).map(([sentiment, data]) => (
+              <Scatter key={sentiment} name={sentiment} data={data}
+                fill={SENTIMENT_COLORS[sentiment]?.hex || "#94A3B8"} opacity={0.88} />
+            ))}
+          </ScatterChart>
+        </ResponsiveContainer>
+      </div>
 
-        {/* Key Entities */}
-        {entities.length > 0 && (
-          <div className="card p-4">
-            <p className="label mb-3">Key Entities</p>
-            <div className="flex flex-wrap gap-2 content-start">
-              {entities.map((e) => (
-                <span
-                  key={e}
-                  className="text-xs bg-slate-100 text-slate-700 border border-slate-200 rounded-full px-3 py-1 font-medium"
-                >
-                  {e}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
+      {/* Chart 3: Market impact ranking */}
+      <div className="card p-4">
+        <p className="label mb-3">Market Impact Score  (LLM-rated)</p>
+        <ResponsiveContainer width="100%" height={chartH}>
+          <BarChart layout="vertical" data={impactBars}
+            margin={{ top: 4, right: 72, bottom: 4, left: 8 }}>
+            <CartesianGrid {...gridStyle} horizontal={false} />
+            <XAxis type="number" domain={[0, 12]} {...axisStyle} />
+            <YAxis type="category" dataKey="name" width={200}
+              tick={{ fontSize: 11, fill: "#64748B" }} />
+            <Tooltip formatter={v => [`${v} / 10`, "Impact"]} contentStyle={ttStyle} />
+            <Bar dataKey="impact" radius={[0, 3, 3, 0]}
+              label={{ position: "right", fontSize: 11, fill: "#64748B",
+                formatter: v => `${v} / 10` }}>
+              {impactBars.map((e, i) => <Cell key={i} fill={e.fill} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
