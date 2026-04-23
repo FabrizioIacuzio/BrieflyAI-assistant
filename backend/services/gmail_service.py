@@ -31,6 +31,25 @@ _FINANCIAL_SENDER = re.compile(
     re.IGNORECASE,
 )
 
+# Senders that are never financial regardless of body content
+_EXCLUDE_SENDER = re.compile(
+    r"careers@|@[^>]*hiring|@[^>]*jobs\b|recruitment|workday|"
+    r"@quora\.com|quora-digest|@reddit\.com|"
+    r"marriott|hilton|hyatt|\bihg\b|"
+    r"@spotify|@netflix|@airbnb|@uber\b|@lyft\b|"
+    r"noreply@amazon|shipment-tracking|order-update",
+    re.IGNORECASE,
+)
+
+# Subjects that are never financial
+_EXCLUDE_SUBJECT = re.compile(
+    r"job opportunit|we.?re hiring|now hiring|career opportunit|open position|"
+    r"your order|has shipped|delivery|tracking number|"
+    r"viewed your profile|new connection request|"
+    r"password reset|verify your email|confirm your (email|account)",
+    re.IGNORECASE,
+)
+
 _TOPIC_PATTERNS = [
     ("AI & Tech",     re.compile(r"ai |artificial intelligence|nvidia|microsoft|apple|google|meta|semiconductor|chip|software|cloud|openai|\bllm\b", re.I)),
     ("Crypto",        re.compile(r"bitcoin|\bethereum\b|\bcrypto\b|blockchain|defi|\bbtc\b|\beth\b|coinbase", re.I)),
@@ -96,11 +115,19 @@ def _get_header(headers: list, name: str) -> str:
 
 
 def _classify(subject: str, body: str, sender: str = "") -> tuple[bool, str, int]:
+    # Hard exclusions: known non-financial senders and obvious spam subjects
+    if _EXCLUDE_SENDER.search(sender) or _EXCLUDE_SUBJECT.search(subject):
+        return False, "Other", 1
+
+    from_financial_sender = bool(_FINANCIAL_SENDER.search(sender))
+    subject_is_financial  = bool(_FINANCIAL_KW.search(subject))
+
+    # Tier 1: trusted financial publisher → always financial
+    # Tier 2: financial keyword in the subject → financial
+    # Body-only matches are too noisy (job emails, prediction markets, etc.)
+    is_financial = from_financial_sender or subject_is_financial
+
     combined = f"{subject} {body[:600]}"
-    is_financial = (
-        bool(_FINANCIAL_KW.search(combined))
-        or bool(_FINANCIAL_SENDER.search(sender))
-    )
     topic = "Other"
     for name, pat in _TOPIC_PATTERNS:
         if pat.search(combined):
