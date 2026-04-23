@@ -3,6 +3,7 @@ gmail_service.py — Fetch Gmail inbox server-side using a stored Google access 
 Maps Gmail messages to the article format expected by the frontend.
 """
 import base64
+import html as html_lib
 import re
 
 import httpx
@@ -10,11 +11,23 @@ import httpx
 GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 
 _FINANCIAL_KW = re.compile(
-    r"stock|market|equity|bond|yield|\betf\b|nasdaq|s&p 500|dow |earnings|"
+    r"\bstock\b|\bmarket\b|equity|bond|yield|\betf\b|nasdaq|\bs&p\b|\bdow\b|earnings|"
     r"revenue|inflation|federal reserve|\bfed\b|\becb\b|interest rate|\bgdp\b|"
-    r"bitcoin|\bcrypto\b|oil price|gold price|commodity|portfolio|dividend|"
+    r"bitcoin|\bcrypto\b|\boil\b|gold price|\bgold\b|commodity|portfolio|dividend|"
     r"merger|acquisition|\bipo\b|quarterly|hedge fund|bloomberg|reuters|"
-    r"cnbc|wall street|goldman|jpmorgan|morgan stanley|barclays|blackrock",
+    r"cnbc|wall street|goldman|jpmorgan|morgan stanley|barclays|blackrock|"
+    r"rate cut|rate hike|basis point|bull market|bear market|fiscal|monetary|"
+    r"treasury|bund|futures|options|volatility|rally|plunge|correction|"
+    r"marketwatch|financial times|morningstar|seeking alpha|motley fool",
+    re.IGNORECASE,
+)
+
+_FINANCIAL_SENDER = re.compile(
+    r"bloomberg|reuters|cnbc|financial times|\bft\b|wall street|morningstar|"
+    r"barclays|jpmorgan|goldman|morgan stanley|blackrock|fidelity|vanguard|"
+    r"marketwatch|seeking alpha|motley fool|yahoo finance|investopedia|zacks|"
+    r"the economist|axios markets|morning brew|daily upside|briefing\.com|"
+    r"alphastreet|streetinsider|benzinga",
     re.IGNORECASE,
 )
 
@@ -43,12 +56,30 @@ def _decode_b64(s: str) -> str:
         return ""
 
 
+def _strip_html(raw: str) -> str:
+    """Strip HTML tags and decode entities — sufficient for keyword classification."""
+    text = re.sub(r"<[^>]+>", " ", raw)
+    text = html_lib.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _extract_body(part: dict) -> str:
+    """Recursively extract readable text, preferring plain text but falling back to HTML."""
     if not part:
         return ""
-    if part.get("mimeType") == "text/plain":
-        data = part.get("body", {}).get("data", "")
-        return _decode_b64(data) if data else ""
+    mime = part.get("mimeType", "")
+    data_b64 = part.get("body", {}).get("data", "")
+
+    if mime == "text/plain" and data_b64:
+        text = _decode_b64(data_b64).strip()
+        if text:
+            return text
+
+    if mime == "text/html" and data_b64:
+        text = _strip_html(_decode_b64(data_b64)).strip()
+        if text:
+            return text
+
     for sub in part.get("parts", []):
         text = _extract_body(sub)
         if text:
@@ -64,9 +95,12 @@ def _get_header(headers: list, name: str) -> str:
     return ""
 
 
-def _classify(subject: str, body: str) -> tuple[bool, str, int]:
+def _classify(subject: str, body: str, sender: str = "") -> tuple[bool, str, int]:
     combined = f"{subject} {body[:600]}"
-    is_financial = bool(_FINANCIAL_KW.search(combined))
+    is_financial = (
+        bool(_FINANCIAL_KW.search(combined))
+        or bool(_FINANCIAL_SENDER.search(sender))
+    )
     topic = "Other"
     for name, pat in _TOPIC_PATTERNS:
         if pat.search(combined):
@@ -110,7 +144,7 @@ async def fetch_gmail_inbox(access_token: str, max_results: int = 50) -> list[di
                 date    = _get_header(hdrs, "date")    or ""
                 body    = _extract_body(msg.get("payload", {}))
 
-                is_financial, topic, urgency = _classify(subject, body)
+                is_financial, topic, urgency = _classify(subject, body, sender)
 
                 articles.append({
                     # Web app fields
