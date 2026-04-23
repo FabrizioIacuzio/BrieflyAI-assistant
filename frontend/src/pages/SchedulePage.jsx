@@ -244,10 +244,7 @@ export default function SchedulePage() {
                 checked={form.email_on_done}
                 onChange={() => setForm((f) => ({ ...f, email_on_done: !f.email_on_done }))}
               />
-              <div>
-                <p className="text-sm font-medium text-slate-700">Email when ready</p>
-                <p className="text-xs text-slate-400">Configure SMTP under Settings → Email</p>
-              </div>
+              <p className="text-sm font-medium text-slate-700">Email when ready</p>
             </div>
           </div>
 
@@ -310,9 +307,6 @@ export default function SchedulePage() {
 
                   {/* Metadata chips */}
                   <div className="flex flex-wrap gap-1.5">
-                    <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-mono">
-                      {s.cron_expression}
-                    </span>
                     <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded">
                       {s.filter_preset}
                     </span>

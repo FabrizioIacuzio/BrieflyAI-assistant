@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useBriefingStore } from "../store/useBriefingStore";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
-  BarChart, Bar, Cell, ReferenceLine,
+  BarChart, Bar, Cell, ReferenceLine, CartesianGrid,
   ScatterChart, Scatter, ZAxis,
 } from "recharts";
 
