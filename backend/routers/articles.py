@@ -5,6 +5,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from ..auth import get_current_user, get_google_access_token
+from ..config import settings
 from ..services.news_service import get_articles, apply_filter
 from ..services.gmail_service import fetch_gmail_inbox
 
@@ -30,7 +31,11 @@ def refresh_articles(request: Request, user: str = Depends(get_current_user)):
 @router.get("/gmail")
 @limiter.limit("10/minute")
 async def list_gmail_articles(request: Request, user: str = Depends(get_current_user)):
-    """Return the user's Gmail inbox in article format."""
+    """Return the user's Gmail inbox in article format, or demo inbox for demo users."""
+    if settings.demo_user and user == settings.demo_user:
+        from ..services.demo_inbox import get_demo_inbox
+        return {"articles": get_demo_inbox(), "source": "Demo Inbox"}
+
     token = get_google_access_token(user)
     if not token:
         raise HTTPException(
