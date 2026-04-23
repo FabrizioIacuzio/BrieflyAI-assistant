@@ -3,11 +3,11 @@ import api from "../api/client";
 import { FILTER_OPTIONS } from "../store/useArticleStore";
 
 const VOICE_OPTIONS = [
-  { label: "American", value: "us" },
-  { label: "British", value: "co.uk" },
-  { label: "Australian", value: "com.au" },
-  { label: "Indian", value: "co.in" },
-  { label: "Irish", value: "ie" },
+  { label: "American (en-US)", value: "us" },
+  { label: "British (en-GB)", value: "co.uk" },
+  { label: "Australian (en-AU)", value: "com.au" },
+  { label: "Indian (en-IN)", value: "co.in" },
+  { label: "Irish (en-IE)", value: "ie" },
 ];
 
 const CRON_PRESETS = [
@@ -29,15 +29,37 @@ const EMPTY_FORM = {
   enabled: true,
 };
 
+function cronLabel(expr) {
+  const found = CRON_PRESETS.find((p) => p.value === expr);
+  return found && found.value !== "custom" ? found.label : expr;
+}
+
+function Toggle({ checked, onChange }) {
+  return (
+    <button
+      type="button"
+      onClick={onChange}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
+        checked ? "bg-blue-600" : "bg-slate-200"
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
+          checked ? "translate-x-6" : "translate-x-1"
+        }`}
+      />
+    </button>
+  );
+}
+
 export default function SchedulePage() {
   const [schedules, setSchedules] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [loading, setLoading]     = useState(true);
+  const [showForm, setShowForm]   = useState(false);
+  const [form, setForm]           = useState(EMPTY_FORM);
   const [cronPreset, setCronPreset] = useState("0 7 * * 1-5");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -57,16 +79,15 @@ export default function SchedulePage() {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim()) { setError("Name is required"); return; }
+    if (!form.name.trim())            { setError("Name is required"); return; }
     if (!form.cron_expression.trim()) { setError("Cron expression is required"); return; }
     setSaving(true);
     setError("");
-    setSuccess("");
     try {
       await api.post("/schedules", form);
-      setSuccess("Schedule created!");
       setShowForm(false);
       setForm(EMPTY_FORM);
+      setCronPreset("0 7 * * 1-5");
       await load();
     } catch (e) {
       setError(e.response?.data?.detail || e.message);
@@ -86,28 +107,41 @@ export default function SchedulePage() {
     await load();
   };
 
+  const openForm = () => { setShowForm(true); setError(""); };
+  const closeForm = () => { setShowForm(false); setError(""); };
+
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <div className="p-6 max-w-3xl mx-auto space-y-5">
+
+      {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Scheduled Briefings</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Auto-generate and email briefings on a recurring schedule
+          <p className="text-sm text-slate-400 mt-0.5">
+            Auto-generate and deliver briefings on a recurring schedule
           </p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="btn-primary">
-          + New Schedule
-        </button>
+        {!showForm && (
+          <button onClick={openForm} className="btn-primary">
+            + New Schedule
+          </button>
+        )}
       </div>
 
-      {/* New schedule form */}
+      {/* ── New schedule form ── */}
       {showForm && (
-        <div className="card p-5 space-y-4 border-blue-200 bg-blue-50">
-          <p className="font-semibold text-slate-800">New schedule</p>
+        <div className="card p-6 space-y-5">
+          <div className="pb-4 border-b border-slate-100">
+            <p className="text-base font-semibold text-slate-800">New Schedule</p>
+            <p className="text-sm text-slate-400 mt-0.5">
+              Configure when and how your briefing is generated
+            </p>
+          </div>
 
           <div className="grid grid-cols-2 gap-4">
+            {/* Name */}
             <div className="col-span-2">
-              <label className="label block mb-1.5">Name</label>
+              <label className="label block mb-1.5">Schedule name</label>
               <input
                 className="input"
                 placeholder="e.g. Morning market briefing"
@@ -116,153 +150,225 @@ export default function SchedulePage() {
               />
             </div>
 
+            {/* Timing preset */}
             <div>
-              <label className="label block mb-1.5">Schedule preset</label>
-              <select className="select" value={cronPreset} onChange={(e) => handlePreset(e.target.value)}>
+              <label className="label block mb-1.5">Timing</label>
+              <select
+                className="select"
+                value={cronPreset}
+                onChange={(e) => handlePreset(e.target.value)}
+              >
                 {CRON_PRESETS.map((p) => (
                   <option key={p.value} value={p.value}>{p.label}</option>
                 ))}
               </select>
             </div>
 
+            {/* Cron */}
             <div>
-              <label className="label block mb-1.5">Cron expression</label>
+              <label className="label block mb-1.5">
+                Cron expression
+                <a
+                  href="https://crontab.guru"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-2 normal-case font-normal text-blue-500 hover:underline text-xs"
+                >
+                  crontab.guru ↗
+                </a>
+              </label>
               <input
-                className="input font-mono"
+                className="input font-mono text-sm"
                 value={form.cron_expression}
-                onChange={(e) => { setForm((f) => ({ ...f, cron_expression: e.target.value })); setCronPreset("custom"); }}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, cron_expression: e.target.value }));
+                  setCronPreset("custom");
+                }}
                 placeholder="0 7 * * 1-5"
               />
-              <p className="text-xs text-slate-400 mt-1">
-                min hour day month weekday &nbsp;·&nbsp;
-                <a href="https://crontab.guru" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
-                  crontab.guru
-                </a>
-              </p>
             </div>
 
+            {/* Filter */}
             <div>
-              <label className="label block mb-1.5">Filter preset</label>
-              <select className="select" value={form.filter_preset} onChange={(e) => setForm((f) => ({ ...f, filter_preset: e.target.value }))}>
+              <label className="label block mb-1.5">News filter</label>
+              <select
+                className="select"
+                value={form.filter_preset}
+                onChange={(e) => setForm((f) => ({ ...f, filter_preset: e.target.value }))}
+              >
                 {FILTER_OPTIONS.filter((f) => f !== "Manual Selection").map((f) => (
                   <option key={f}>{f}</option>
                 ))}
               </select>
             </div>
 
-            <div>
-              <label className="label block mb-1.5">Duration: {form.duration_minutes} min</label>
-              <input
-                type="range" min={1} max={10} step={1}
-                value={form.duration_minutes}
-                onChange={(e) => setForm((f) => ({ ...f, duration_minutes: Number(e.target.value) }))}
-                className="w-full accent-blue-600 mt-2"
-              />
-            </div>
-
+            {/* Voice */}
             <div>
               <label className="label block mb-1.5">Voice accent</label>
-              <select className="select" value={form.voice_accent} onChange={(e) => setForm((f) => ({ ...f, voice_accent: e.target.value }))}>
+              <select
+                className="select"
+                value={form.voice_accent}
+                onChange={(e) => setForm((f) => ({ ...f, voice_accent: e.target.value }))}
+              >
                 {VOICE_OPTIONS.map((v) => (
                   <option key={v.value} value={v.value}>{v.label}</option>
                 ))}
               </select>
             </div>
 
-            <div className="flex items-center gap-3 col-span-2">
-              <input
-                type="checkbox"
-                id="email_on_done"
-                checked={form.email_on_done}
-                onChange={(e) => setForm((f) => ({ ...f, email_on_done: e.target.checked }))}
-                className="accent-blue-600"
-              />
-              <label htmlFor="email_on_done" className="text-sm text-slate-700 cursor-pointer">
-                Send email when briefing is ready{" "}
-                <span className="text-slate-400">(configure SMTP in Settings)</span>
+            {/* Duration */}
+            <div className="col-span-2">
+              <label className="label block mb-2">
+                Briefing duration —{" "}
+                <span className="text-blue-600 normal-case font-semibold">
+                  {form.duration_minutes} min
+                </span>
               </label>
+              <input
+                type="range" min={1} max={10} step={1}
+                value={form.duration_minutes}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, duration_minutes: Number(e.target.value) }))
+                }
+                className="w-full accent-blue-600"
+              />
+              <div className="flex justify-between text-xs text-slate-300 mt-1 select-none">
+                <span>1 min</span><span>10 min</span>
+              </div>
+            </div>
+
+            {/* Email toggle */}
+            <div className="col-span-2 flex items-center gap-3 py-1">
+              <Toggle
+                checked={form.email_on_done}
+                onChange={() => setForm((f) => ({ ...f, email_on_done: !f.email_on_done }))}
+              />
+              <div>
+                <p className="text-sm font-medium text-slate-700">Email when ready</p>
+                <p className="text-xs text-slate-400">Configure SMTP under Settings → Email</p>
+              </div>
             </div>
           </div>
 
-          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
-          {success && <p className="text-sm text-green-600">{success}</p>}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
+              <p className="text-sm text-red-600">{error}</p>
+            </div>
+          )}
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 pt-1">
             <button onClick={handleSave} disabled={saving} className="btn-primary">
               {saving ? "Saving…" : "Save schedule"}
             </button>
-            <button onClick={() => { setShowForm(false); setError(""); }} className="btn-ghost">
-              Cancel
-            </button>
+            <button onClick={closeForm} className="btn-ghost">Cancel</button>
           </div>
         </div>
       )}
 
-      {/* Schedules list */}
+      {/* ── Schedules list ── */}
       {loading ? (
-        <div className="card p-8 text-center text-slate-400">Loading…</div>
+        <div className="card p-10 text-center text-slate-400 text-sm">Loading…</div>
       ) : schedules.length === 0 ? (
-        <div className="card p-8 text-center">
-          <p className="text-slate-400 mb-3">No schedules yet.</p>
-          <p className="text-sm text-slate-500">
-            Create a schedule to automatically generate and email your financial briefing every morning.
+        <div className="card p-12 text-center">
+          <p className="text-4xl mb-3">⏰</p>
+          <p className="text-base font-semibold text-slate-700 mb-1">No schedules yet</p>
+          <p className="text-sm text-slate-400 max-w-sm mx-auto leading-relaxed">
+            Create a schedule to automatically generate your financial briefing and deliver it to your inbox every morning.
           </p>
+          <button onClick={openForm} className="btn-primary mt-5 mx-auto">
+            + New Schedule
+          </button>
         </div>
       ) : (
         <div className="space-y-3">
           {schedules.map((s) => (
-            <div key={s.id} className="card p-4 flex items-center gap-4">
-              {/* Toggle */}
-              <button
-                onClick={() => handleToggle(s.id)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
-                  s.enabled ? "bg-blue-600" : "bg-slate-200"
-                }`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  s.enabled ? "translate-x-6" : "translate-x-1"
-                }`} />
-              </button>
+            <div
+              key={s.id}
+              className={`card p-5 transition-opacity ${!s.enabled ? "opacity-55" : ""}`}
+            >
+              <div className="flex items-start gap-4">
+                <Toggle checked={s.enabled} onChange={() => handleToggle(s.id)} />
 
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold text-slate-800 truncate">{s.name}</p>
-                  {!s.enabled && <span className="text-xs bg-slate-100 text-slate-400 px-2 rounded-full">Paused</span>}
-                </div>
-                <div className="flex flex-wrap gap-3 mt-1 text-xs text-slate-400">
-                  <span className="font-mono bg-slate-100 px-2 py-0.5 rounded">{s.cron_expression}</span>
-                  <span>{s.filter_preset}</span>
-                  <span>{s.duration_minutes} min</span>
-                  {s.email_on_done && <span>📧 email</span>}
+                <div className="flex-1 min-w-0">
+                  {/* Name + status */}
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="text-sm font-semibold text-slate-800">{s.name}</p>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        s.enabled
+                          ? "bg-green-50 text-green-700"
+                          : "bg-slate-100 text-slate-400"
+                      }`}
+                    >
+                      {s.enabled ? "Active" : "Paused"}
+                    </span>
+                  </div>
+
+                  {/* Human-readable timing */}
+                  <p className="text-xs text-slate-500 mb-3">{cronLabel(s.cron_expression)}</p>
+
+                  {/* Metadata chips */}
+                  <div className="flex flex-wrap gap-1.5">
+                    <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-mono">
+                      {s.cron_expression}
+                    </span>
+                    <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded">
+                      {s.filter_preset}
+                    </span>
+                    <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded">
+                      {s.duration_minutes} min
+                    </span>
+                    <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded">
+                      {VOICE_OPTIONS.find((v) => v.value === s.voice_accent)?.label ?? s.voice_accent}
+                    </span>
+                    {s.email_on_done && (
+                      <span className="text-xs bg-blue-50 text-blue-600 border border-blue-100 px-2 py-0.5 rounded">
+                        Email delivery
+                      </span>
+                    )}
+                  </div>
+
                   {s.last_run_at && (
-                    <span>Last run: {new Date(s.last_run_at).toLocaleString()}</span>
+                    <p className="text-xs text-slate-400 mt-2.5">
+                      Last run: {new Date(s.last_run_at).toLocaleString()}
+                    </p>
                   )}
                 </div>
-              </div>
 
-              {/* Delete */}
-              <button
-                onClick={() => handleDelete(s.id)}
-                className="btn-danger text-xs flex-shrink-0"
-              >
-                Delete
-              </button>
+                <button
+                  onClick={() => handleDelete(s.id)}
+                  className="text-xs text-slate-300 hover:text-red-500 transition-colors flex-shrink-0 mt-0.5"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Info box */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-        <p className="text-xs font-bold text-amber-700 uppercase tracking-wider mb-2">How it works</p>
-        <ul className="text-sm text-amber-800 space-y-1">
-          <li>• Schedules run in the background while the server is running</li>
-          <li>• Articles are auto-fetched and filtered using the selected preset</li>
-          <li>• The briefing is saved to your Archive automatically</li>
-          <li>• Configure your SMTP settings in Settings → Email to receive it by email</li>
-        </ul>
+      {/* ── How it works ── */}
+      <div className="border border-slate-200 rounded-xl p-5">
+        <p className="label mb-4">How it works</p>
+        <div className="grid grid-cols-3 gap-5">
+          {[
+            ["1", "Trigger", "The server fires at the configured cron time automatically."],
+            ["2", "Fetch & filter", "Articles are pulled and filtered by the selected preset."],
+            ["3", "Deliver", "The briefing is archived and optionally emailed to you."],
+          ].map(([n, title, desc]) => (
+            <div key={n} className="flex gap-3">
+              <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                {n}
+              </span>
+              <div>
+                <p className="text-xs font-semibold text-slate-600">{title}</p>
+                <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
+
     </div>
   );
 }
