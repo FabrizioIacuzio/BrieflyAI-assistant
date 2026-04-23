@@ -27,6 +27,7 @@
   "host_permissions": [
     "https://www.googleapis.com/*",
     "https://gmail.googleapis.com/*",
+    "https://brieflyai-assistant-production.up.railway.app/*",
     "http://localhost:8000/*"
   ],
 
@@ -44,7 +45,7 @@
     "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none';"
   },
 
-  "_comment_urls": "Change backend_url and frontend_url to your production domain before publishing to Chrome Web Store. Remove http://localhost:8000/* from host_permissions and add your production domain.",
-  "backend_url":  "http://localhost:8000/api",
-  "frontend_url": "http://localhost:5173"
+  "_comment_urls": "backend_url and frontend_url are read at runtime by popup.js via chrome.runtime.getManifest().",
+  "backend_url":  "https://brieflyai-assistant-production.up.railway.app/api",
+  "frontend_url": "https://briefly-ai-assistant.vercel.app"
 }

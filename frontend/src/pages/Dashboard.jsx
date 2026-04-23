@@ -6,14 +6,12 @@ import { useBriefingStore } from "../store/useBriefingStore";
 import InboxPage from "./InboxPage";
 import ArchivePage from "./ArchivePage";
 import SchedulePage from "./SchedulePage";
-import SettingsPage from "./SettingsPage";
 import api from "../api/client";
 
 const NAV_ITEMS = [
   { to: "/",         label: "Inbox",    icon: "✉" },
   { to: "/archive",  label: "Archive",  icon: "🗂" },
   { to: "/schedule", label: "Schedule", icon: "⏰" },
-  { to: "/settings", label: "Settings", icon: "⚙" },
 ];
 
 export default function Dashboard() {
@@ -105,7 +103,6 @@ export default function Dashboard() {
             <Route path="/" element={<InboxPage />} />
             <Route path="/archive" element={<ArchivePage />} />
             <Route path="/schedule" element={<SchedulePage />} />
-            <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </div>
       </main>

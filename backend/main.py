@@ -76,9 +76,9 @@ app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.get_cors_origins(),
-    # Only allow the specific installed extension ID, not all chrome-extension:// origins.
-    # Update this when deploying the extension to the Chrome Web Store.
-    allow_origin_regex=r"chrome-extension://dhekfikliidfopcllbkdgpekepnipcli",
+    # Allow any chrome-extension:// origin — all endpoints require a valid
+    # Bearer JWT so CORS is not the primary auth boundary.
+    allow_origin_regex=r"chrome-extension://[a-z]+",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
