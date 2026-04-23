@@ -13,12 +13,14 @@ function SentimentChart({ data }) {
   const sorted = [...data].sort((a, b) => a.sentiment_score - b.sentiment_score);
   return (
     <ResponsiveContainer width="100%" height={Math.max(200, sorted.length * 44)}>
-      <BarChart data={sorted} layout="vertical" margin={{ left: 10, right: 60, top: 10, bottom: 10 }}>
-        <XAxis type="number" domain={[-1.2, 1.2]} tickFormatter={(v) => v.toFixed(1)} />
-        <YAxis type="category" dataKey="label" width={180} tick={{ fontSize: 11 }} />
-        <Tooltip formatter={(v) => v.toFixed(2)} />
+      <BarChart data={sorted} layout="vertical" margin={{ left: 4, right: 72, top: 10, bottom: 10 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
+        <XAxis type="number" domain={[-1.2, 1.2]} tickFormatter={(v) => v.toFixed(1)} tick={{ fontSize: 11 }} />
+        <YAxis type="category" dataKey="label" width={185} tick={{ fontSize: 11 }} />
+        <Tooltip formatter={(v) => [v > 0 ? `+${v.toFixed(2)}` : v.toFixed(2), "Score"]} />
         <ReferenceLine x={0} stroke="#9ca3af" strokeDasharray="3 3" />
-        <Bar dataKey="sentiment_score" radius={3}>
+        <Bar dataKey="sentiment_score" radius={[0, 3, 3, 0]}
+          label={{ position: "right", fontSize: 11, fill: "#64748b", formatter: (v) => v > 0 ? `+${v.toFixed(2)}` : v.toFixed(2) }}>
           {sorted.map((e, i) => (
             <Cell key={i} fill={SENTIMENT_COLORS[e.sentiment] || "#64748b"} />
           ))}
@@ -30,20 +32,17 @@ function SentimentChart({ data }) {
 
 function ImpactChart({ data }) {
   const sorted = [...data].sort((a, b) => a.market_impact - b.market_impact);
-  const colorFromImpact = (v) => {
-    const t = (v - 1) / 9;
-    const r = Math.round(253 + (220 - 253) * t);
-    const g = Math.round(230 + (38 - 230) * t);
-    const b = Math.round(138 + (38 - 138) * t);
-    return `rgb(${r},${g},${b})`;
-  };
+  const colorFromImpact = (v) =>
+    v >= 8 ? "#dc2626" : v >= 5 ? "#f59e0b" : "#fde68a";
   return (
     <ResponsiveContainer width="100%" height={Math.max(200, sorted.length * 44)}>
-      <BarChart data={sorted} layout="vertical" margin={{ left: 10, right: 60, top: 10, bottom: 10 }}>
-        <XAxis type="number" domain={[0, 12]} />
-        <YAxis type="category" dataKey="label" width={180} tick={{ fontSize: 11 }} />
-        <Tooltip formatter={(v) => `${v}/10`} />
-        <Bar dataKey="market_impact" radius={3}>
+      <BarChart data={sorted} layout="vertical" margin={{ left: 4, right: 72, top: 10, bottom: 10 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
+        <XAxis type="number" domain={[0, 12]} tick={{ fontSize: 11 }} />
+        <YAxis type="category" dataKey="label" width={185} tick={{ fontSize: 11 }} />
+        <Tooltip formatter={(v) => [`${v} / 10`, "Impact"]} />
+        <Bar dataKey="market_impact" radius={[0, 3, 3, 0]}
+          label={{ position: "right", fontSize: 11, fill: "#64748b", formatter: (v) => `${v}/10` }}>
           {sorted.map((e, i) => (
             <Cell key={i} fill={colorFromImpact(e.market_impact)} />
           ))}
@@ -54,11 +53,12 @@ function ImpactChart({ data }) {
 }
 
 function UrgencyScatterChart({ data }) {
+  const jitter = (i, slot) => ((i * 7 + slot * 13) % 19) / 100 - 0.09;
   const grouped = {};
-  data.forEach((d) => {
+  data.forEach((d, i) => {
     const s = d.sentiment || "Neutral";
     if (!grouped[s]) grouped[s] = [];
-    grouped[s].push({ x: d.urgency + Math.random() * 0.36 - 0.18, y: d.market_impact + Math.random() * 0.36 - 0.18, name: d.label });
+    grouped[s].push({ x: +(d.urgency + jitter(i, 0)).toFixed(2), y: +(d.market_impact + jitter(i, 1)).toFixed(2), name: d.label });
   });
   return (
     <ResponsiveContainer width="100%" height={360}>
@@ -147,7 +147,7 @@ export default function ArchivePage() {
   const briefing = selected != null ? archive[selected] : null;
 
   const analyticsData = briefing?.analytics?.map((r) => ({
-    label: (r.subject || r.one_line_summary || "").slice(0, 42) + "…",
+    label: (r.subject || r.one_line_summary || "").slice(0, 30) + "…",
     sentiment: r.sentiment,
     sentiment_score: r.sentiment_score,
     urgency: r.urgency,
@@ -205,8 +205,8 @@ export default function ArchivePage() {
                     {new Date(b.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
                   </span>
                 </p>
-                {b.feedback === "up" && <span title="Marked useful">👍</span>}
-                {b.feedback === "down" && <span title="Marked not useful">👎</span>}
+                {b.feedback >= 4 && <span title={`Rated ${b.feedback}/5`}>⭐</span>}
+                {b.feedback != null && b.feedback < 4 && <span title={`Rated ${b.feedback}/5`} className="text-xs text-slate-400">{b.feedback}★</span>}
                 {b.scheduled && <span className="text-xs bg-purple-100 text-purple-600 px-1.5 rounded">⏰ Auto</span>}
               </div>
               <p className="text-xs text-slate-400 mb-3">

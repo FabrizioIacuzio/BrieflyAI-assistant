@@ -47,6 +47,13 @@ def update_schedule(schedule_id: int, body: ScheduleCreate,
     if not s:
         raise HTTPException(404, "Schedule not found")
 
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+        CronTrigger.from_crontab(body.cron_expression)
+    except Exception:
+        logger.warning("Invalid cron expression submitted: %r", body.cron_expression)
+        raise HTTPException(400, "Invalid cron expression. Use standard crontab format: 'min hour dom mon dow'")
+
     for k, v in body.model_dump().items():
         setattr(s, k, v)
     db.commit()

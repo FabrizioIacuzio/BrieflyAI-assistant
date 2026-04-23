@@ -79,8 +79,9 @@ export default function SchedulePage() {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim())            { setError("Name is required"); return; }
-    if (!form.cron_expression.trim()) { setError("Cron expression is required"); return; }
+    if (!form.name.trim()) { setError("Name is required"); return; }
+    const cronParts = form.cron_expression.trim().split(/\s+/);
+    if (cronParts.length !== 5) { setError("Cron expression must have exactly 5 fields: min hour dom mon dow"); return; }
     setSaving(true);
     setError("");
     try {

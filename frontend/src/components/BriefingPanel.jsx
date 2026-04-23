@@ -113,7 +113,7 @@ function InsightsPanel({ analytics }) {
   const sentimentBars = [...analytics]
     .sort((a, b) => a.sentiment_score - b.sentiment_score)
     .map(r => ({
-      name:  (r.one_line_summary || "").slice(0, 40) + "…",
+      name:  (r.one_line_summary || "").slice(0, 30) + "…",
       score: parseFloat((r.sentiment_score ?? 0).toFixed(2)),
       fill:  SENTIMENT_COLORS[r.sentiment]?.hex || "#94A3B8",
     }));
@@ -136,7 +136,7 @@ function InsightsPanel({ analytics }) {
   const impactBars = [...analytics]
     .sort((a, b) => a.market_impact - b.market_impact)
     .map(r => ({
-      name:   (r.one_line_summary || "").slice(0, 40) + "…",
+      name:   (r.one_line_summary || "").slice(0, 30) + "…",
       impact: r.market_impact,
       fill:   r.market_impact >= 8 ? "#dc2626" : r.market_impact >= 5 ? "#f59e0b" : "#fde68a",
     }));
@@ -156,7 +156,7 @@ function InsightsPanel({ analytics }) {
 
   return (
     <div className="space-y-6">
-      <p className="label text-base">Insights</p>
+      <p className="label">Insights</p>
 
       {/* KPI cards */}
       <div className="grid grid-cols-5 gap-3">
@@ -174,10 +174,10 @@ function InsightsPanel({ analytics }) {
         <p className="text-xs text-slate-400 mb-3">← Bearish &nbsp;|&nbsp; Neutral &nbsp;|&nbsp; Bullish →</p>
         <ResponsiveContainer width="100%" height={chartH}>
           <BarChart layout="vertical" data={sentimentBars}
-            margin={{ top: 4, right: 64, bottom: 4, left: 8 }}>
+            margin={{ top: 4, right: 72, bottom: 4, left: 4 }}>
             <CartesianGrid {...gridStyle} horizontal={false} />
             <XAxis type="number" domain={[-1.2, 1.2]} {...axisStyle} />
-            <YAxis type="category" dataKey="name" width={200}
+            <YAxis type="category" dataKey="name" width={185}
               tick={{ fontSize: 11, fill: "#64748B" }} />
             <Tooltip formatter={v => [v > 0 ? `+${v.toFixed(2)}` : v.toFixed(2), "Score"]}
               contentStyle={ttStyle} />
@@ -233,10 +233,10 @@ function InsightsPanel({ analytics }) {
         <p className="label mb-3">Market Impact Score  (LLM-rated)</p>
         <ResponsiveContainer width="100%" height={chartH}>
           <BarChart layout="vertical" data={impactBars}
-            margin={{ top: 4, right: 72, bottom: 4, left: 8 }}>
+            margin={{ top: 4, right: 72, bottom: 4, left: 4 }}>
             <CartesianGrid {...gridStyle} horizontal={false} />
             <XAxis type="number" domain={[0, 12]} {...axisStyle} />
-            <YAxis type="category" dataKey="name" width={200}
+            <YAxis type="category" dataKey="name" width={185}
               tick={{ fontSize: 11, fill: "#64748B" }} />
             <Tooltip formatter={v => [`${v} / 10`, "Impact"]} contentStyle={ttStyle} />
             <Bar dataKey="impact" radius={[0, 3, 3, 0]}
