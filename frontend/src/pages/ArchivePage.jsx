@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useBriefingStore } from "../store/useBriefingStore";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
@@ -120,10 +121,28 @@ function TrendChart({ archive }) {
 
 export default function ArchivePage() {
   const { archive, archiveLoading, fetchArchive, fetchTrendAnalysis, trendAnalysis, trendLoading } = useBriefingStore();
-  const [selected, setSelected] = useState(null);
-  const [activeTab, setActiveTab] = useState("script");
+  const [selected, setSelected]     = useState(null);
+  const [activeTab, setActiveTab]   = useState("script");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const detailRef = useRef(null);
+
+  const openId = searchParams.get("open");
 
   useEffect(() => { fetchArchive(); }, []);
+
+  // When coming from the extension via /archive?open=ID — auto-select the
+  // briefing and jump straight to the analytics (graphs) tab.
+  useEffect(() => {
+    if (!openId || archive.length === 0) return;
+    const targetId = parseInt(openId, 10);
+    const idx = archive.findIndex((b) => b.id === targetId);
+    if (idx === -1) return;
+    setSelected(idx);
+    setActiveTab("analytics");
+    setSearchParams({}, { replace: true });
+    // Scroll to detail panel once React re-renders
+    setTimeout(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+  }, [openId, archive]);
 
   const briefing = selected != null ? archive[selected] : null;
 
@@ -210,7 +229,7 @@ export default function ArchivePage() {
 
       {/* Briefing detail */}
       {briefing && (
-        <div className="card overflow-hidden">
+        <div ref={detailRef} className="card overflow-hidden">
           <div className="border-b border-slate-100">
             <div className="flex border-b border-slate-100 px-2">
               {["script", "analytics", "debate"].map((tab) => (

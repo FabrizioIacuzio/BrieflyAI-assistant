@@ -27,11 +27,14 @@ export default function OAuthCallback() {
       return;
     }
 
+    const briefingId = params.get("briefing_id");
+
     login(token, username, { email, picture });
 
     // Remove the sensitive params from the browser history
     window.history.replaceState({}, "", "/");
-    navigate("/", { replace: true });
+    // If coming from the extension, jump straight to the generated briefing
+    navigate(briefingId ? `/archive?open=${briefingId}` : "/", { replace: true });
   }, []);
 
   if (error) {

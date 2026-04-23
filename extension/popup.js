@@ -521,10 +521,20 @@ async function showBriefingResult(briefingId) {
     });
   });
 
-  // Open app link
+  // Open app link — pass token + briefing ID so the web app logs in
+  // automatically and opens the just-generated briefing directly.
   const appLink = $("openAppLink");
   const { frontend_url = "http://localhost:5173" } = chrome.runtime.getManifest();
-  if (appLink) appLink.href = frontend_url;
+  if (appLink) {
+    const params = new URLSearchParams({
+      token:       brieflyToken,
+      username:    userProfile.username || userProfile.email || "User",
+      email:       userProfile.email    || "",
+      picture:     userProfile.picture  || "",
+      briefing_id: String(briefingId),
+    });
+    appLink.href = `${frontend_url}/oauth-callback?${params.toString()}`;
+  }
 
   // Fetch full briefing data
   try {
